@@ -6,24 +6,22 @@ class ZipDecrypt extends ArchiveDecrypt {
     constructor(zipPath) {
         super(zipPath);
         this.zip = new AdmZip(zipPath);
-        this.targetEntry = null;
-        this.targetFileNotFound = false;
         this.entries = this.zip.getEntries();
     }
 
     initializeTargetFile() {
-        this.targetEntry = null;
+        this.targetFile = null;
         this.targetFileNotFound = false;
-        
+
         if (this.options.targetFileName) {
             for (const entry of this.entries) {
                 if (!entry.isDirectory && entry.entryName === this.options.targetFileName) {
-                    this.targetEntry = entry;
+                    this.targetFile = entry;
                     break;
                 }
             }
-            
-            if (!this.targetEntry) {
+
+            if (!this.targetFile) {
                 this.targetFileNotFound = true;
                 throw new Error(`Target file ${this.options.targetFileName} not found in archive`);
             }
@@ -31,7 +29,7 @@ class ZipDecrypt extends ArchiveDecrypt {
             if (this.entries.length > 0) {
                 for (const entry of this.entries) {
                     if (!entry.isDirectory) {
-                        this.targetEntry = entry;
+                        this.targetFile = entry;
                         break;
                     }
                 }
@@ -40,25 +38,28 @@ class ZipDecrypt extends ArchiveDecrypt {
     }
 
     async tryPassword(password) {
-        if (this.currentDecryptingMode !== 'bruteForce' && this.extractorCache.has(password)) {
-            return this.extractorCache.get(password);
+        if (this.currentDecryptingMode !== 'bruteForce') {
+            const cached = this.getCachedResult(password);
+            if (cached !== undefined) {
+                return cached;
+            }
         }
-        
+
         if (this.targetFileNotFound) {
             throw new Error(`Target file ${this.options.targetFileName} not found in archive`);
         }
-        
-        if (!this.targetEntry) {
+
+        if (!this.targetFile) {
             return false;
         }
-        
+
         try {
-            this.zip.readFile(this.targetEntry, password);
-            this.extractorCache.set(password, true);
+            this.zip.readFile(this.targetFile, password);
+            this.setCache(password, true);
             return true;
         } catch (error) {
             if (this.currentDecryptingMode !== 'bruteForce') {
-                this.extractorCache.set(password, false);
+                this.setCache(password, false);
             }
             return false;
         }
@@ -78,7 +79,8 @@ class ZipDecrypt extends ArchiveDecrypt {
             onFailure = null
         } = options;
         this.currentDecryptingMode = 'bruteForce';
-        
+        const safeDelay = this.validateDelay(delay);
+
         this.initializeTargetFile();
         if (this.targetFileNotFound) {
             console.error(`Target file ${this.options.targetFileName} not found in archive`);
@@ -99,15 +101,15 @@ class ZipDecrypt extends ArchiveDecrypt {
                     return password;
                 }
             } catch (error) {
-                if (error.message && error.message.includes('not found in archive')) {
+                if (this.isTargetFileError(error)) {
                     console.error(error.message);
                     if (onFailure) onFailure();
                     return null;
                 }
             }
 
-            if (delay > 0) {
-                await new Promise(resolve => setTimeout(resolve, delay));
+            if (safeDelay > 0) {
+                await new Promise(resolve => setTimeout(resolve, safeDelay));
             }
         }
 

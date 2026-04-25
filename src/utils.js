@@ -12,24 +12,22 @@ function* generatePasswords(charset, minLength, maxLength, maxAttempts) {
     let attempts = 0;
 
     for (let length = minLength; length <= maxLength; length++) {
-        // Initialize password array, each position corresponds to a character index in the password
         const passwordIndices = Array(length).fill(0);
         const charsetLength = charset.length;
         let hasMorePasswords = true;
+        const passwordChars = new Array(length);
 
         while (hasMorePasswords) {
             if (attempts >= maxAttempts) break;
 
-            // Generate current password
-            let password = '';
             for (let i = 0; i < length; i++) {
-                password += charset[passwordIndices[i]];
+                passwordChars[i] = charset[passwordIndices[i]];
             }
+            const password = passwordChars.join('');
 
             yield password;
             attempts++;
 
-            // Generate next password
             let position = length - 1;
             while (position >= 0) {
                 passwordIndices[position]++;

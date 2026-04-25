@@ -7,14 +7,13 @@ class RarDecrypt extends ArchiveDecrypt {
     constructor(rarPath) {
         super(rarPath);
         this.buffer = Uint8Array.from(fs.readFileSync(rarPath)).buffer;
-        this.targetEncryptedFileName = null;
-        this.targetEncryptedFileInitialized = false;
+        this.targetFile = null;
+        this.targetFileInitialized = false;
         this.rarExtractor = null;
-        this.targetFileNotFound = false;
     }
 
     async initializeTargetFile() {
-        if (this.targetEncryptedFileInitialized) return;
+        if (this.targetFileInitialized) return;
 
         try {
             const extractor = await unrar.createExtractorFromData({
@@ -25,51 +24,55 @@ class RarDecrypt extends ArchiveDecrypt {
             const list = extractor.getFileList();
             const fileHeaders = [...list.fileHeaders];
 
-            let targetFileSize = Infinity;
-            let targetFileName = null;
+            let smallestSize = Infinity;
+            let targetFile = null;
             for (const header of fileHeaders) {
                 if (!header.flags.directory && header.flags.encrypted) {
                     if (this.options.targetFileName && header.name === this.options.targetFileName) {
-                        targetFileName = header.name;
-                        targetFileSize = header.packSize;
+                        targetFile = header.name;
+                        smallestSize = header.packSize;
                         break;
                     } else if (!this.options.targetFileName) {
-                        if (header.packSize < targetFileSize) {
-                            targetFileSize = header.packSize;
-                            targetFileName = header.name;
+                        if (header.packSize < smallestSize) {
+                            smallestSize = header.packSize;
+                            targetFile = header.name;
                         }
                     }
                 }
             }
-            if (this.options.targetFileName && !targetFileName) {
+            if (this.options.targetFileName && !targetFile) {
                 this.targetFileNotFound = true;
-                this.targetEncryptedFileInitialized = true;
+                this.targetFileInitialized = true;
                 throw new Error(`Target file ${this.options.targetFileName} not found in archive`);
             }
-            this.targetEncryptedFileName = targetFileName;
-            console.log(`Target encrypted file found: ${targetFileName} (size: ${targetFileSize})`);
-            this.targetEncryptedFileInitialized = true;
+            this.targetFile = targetFile;
+            console.log(`Target encrypted file found: ${targetFile} (size: ${smallestSize})`);
+            this.targetFileInitialized = true;
         } catch (error) {
-            console.error('Error initializing target encrypted file:', error.message);
-            this.targetEncryptedFileInitialized = true;
+            console.error('Error initializing target file:', error.message);
+            this.targetFileInitialized = true;
         }
     }
 
     async tryPassword(password) {
         password = password.trim();
 
-        if (this.currentDecryptingMode !== 'bruteForce' && this.extractorCache.has(password)) {
-            return this.extractorCache.get(password);
+        if (this.currentDecryptingMode !== 'bruteForce') {
+            const cached = this.getCachedResult(password);
+            if (cached !== undefined) {
+                return cached;
+            }
         }
+
 
         if (this.targetFileNotFound) {
             throw new Error(`Target file ${this.options.targetFileName} not found in archive`);
         }
 
         try {
-            if (this.targetEncryptedFileName) {
+            if (this.targetFile) {
                 const result = this.rarExtractor.extract({
-                    files: [this.targetEncryptedFileName],
+                    files: [this.targetFile],
                     password: password
                 });
                 const files = [...result.files];
@@ -78,13 +81,13 @@ class RarDecrypt extends ArchiveDecrypt {
                 const files = [...result.files];
             }
 
-            this.extractorCache.set(password, true);
+            this.setCache(password, true);
             return true;
         } catch (error) {
-            if (error.reason === 'ERAR_BAD_PASSWORD' || 
+            if (error.reason === 'ERAR_BAD_PASSWORD' ||
                 (error.message && (error.message.includes('bad password') || error.message.includes('Bad password')))) {
                 if (this.currentDecryptingMode !== 'bruteForce') {
-                    this.extractorCache.set(password, false);
+                    this.setCache(password, false);
                 }
                 return false;
             } else {
@@ -108,6 +111,7 @@ class RarDecrypt extends ArchiveDecrypt {
             onFailure = null
         } = options;
         this.currentDecryptingMode = 'bruteForce';
+        const safeDelay = this.validateDelay(delay);
 
         await this.initializeTargetFile();
         if (this.targetFileNotFound) {
@@ -129,14 +133,14 @@ class RarDecrypt extends ArchiveDecrypt {
                     return password;
                 }
             } catch (error) {
-                if (!(error.reason === 'ERAR_BAD_PASSWORD' || 
-                      (error.message && (error.message.includes('bad password') || error.message.includes('Bad password'))))) {
+                if (!(error.reason === 'ERAR_BAD_PASSWORD' ||
+                    (error.message && (error.message.includes('bad password') || error.message.includes('Bad password'))))) {
                     console.error('Error during extraction:', error.message);
                 }
             }
 
-            if (delay > 0) {
-                await new Promise(resolve => setTimeout(resolve, delay));
+            if (safeDelay > 0) {
+                await new Promise(resolve => setTimeout(resolve, safeDelay));
             }
         }
 

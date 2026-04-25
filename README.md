@@ -9,8 +9,7 @@ A Node.js package for brute force and dictionary attacks on encrypted archive fi
 - **Hybrid Attack**: Combine dictionary and brute force attacks
 - **Programmatic API**: Use in your Node.js applications
 - **Support for Multiple Formats**: Works with both ZIP and RAR files
-- **Target File Selection**: Specify a specific file to verify password (faster)
-- **RAR Optimization**: Uses node-unrar-js for proper RAR password handling
+- **RAR Optimization**: Uses node-unrar-js for proper RAR password handling and Specify a specific file to verify password (faster)
 
 ## Installation
 
