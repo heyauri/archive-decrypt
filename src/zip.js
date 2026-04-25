@@ -37,7 +37,7 @@ class ZipDecrypt extends ArchiveDecrypt {
         const {
             charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
             minLength = 1,
-            maxLength = 6,
+            maxLength = 10,
             maxAttempts = Infinity,
             delay = 0,
             onAttempt = null,
@@ -53,11 +53,9 @@ class ZipDecrypt extends ArchiveDecrypt {
             if (onAttempt) onAttempt(password, attempts);
 
             try {
-                // Brute force attack doesn't use cache, try password directly
-                if (this.firstEntry) {
-                    // Try to read file content, will throw exception if password is wrong
-                    this.zip.readFile(this.firstEntry, password);
-                    // If successfully read, password is correct
+                // Brute force attack uses tryPassword method
+                const result = await this.tryPassword(password);
+                if (result) {
                     if (onSuccess) onSuccess(password, attempts);
                     return password;
                 }

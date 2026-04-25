@@ -174,5 +174,4 @@ This tool is intended for educational purposes only. Always obtain proper author
 
 ## Limitations
 
-- **adm-zip** library does not support creating encrypted zip files. To test this tool, you need to create encrypted zip files using other tools (e.g., WinZip, 7-Zip).
 - The password verification process uses `readFile` method, which attempts to read the first file in the zip archive. This is more efficient than extracting the entire archive.

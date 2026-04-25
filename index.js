@@ -17,8 +17,8 @@ class ArchiveDecrypt {
     }
 
     // Dictionary attack
-    async dictionaryAttack(dictionary, options = {}) {
-        return this.decryptor.dictionaryAttack(dictionary, options);
+    async dictionaryAttack(options = {}) {
+        return this.decryptor.dictionaryAttack(options);
     }
 
     // Brute force attack
@@ -27,8 +27,8 @@ class ArchiveDecrypt {
     }
 
     // Hybrid attack (dictionary + brute force)
-    async hybridAttack(dictionary, bruteForceOptions = {}) {
-        return this.decryptor.hybridAttack(dictionary, bruteForceOptions);
+    async hybridAttack(options = {}) {
+        return this.decryptor.hybridAttack(options);
     }
 }
 

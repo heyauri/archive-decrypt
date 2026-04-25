@@ -3,6 +3,7 @@
 class ArchiveDecrypt {
     constructor(archivePath) {
         this.archivePath = archivePath;
+        this.currentDecryptingMode = null;
         this.extractorCache = new Map(); // Cache extractor instances
     }
 
@@ -12,14 +13,16 @@ class ArchiveDecrypt {
     }
 
     // Dictionary attack
-    async dictionaryAttack(dictionary, options = {}) {
+    async dictionaryAttack(options = {}) {
         const {
             maxAttempts = Infinity,
+            dictionary = [],
             delay = 0,
             onAttempt = null,
             onSuccess = null,
             onFailure = null
         } = options;
+        this.currentDecryptingMode = 'dictionary';
 
         let attempts = 0;
         for (const password of dictionary) {
@@ -31,8 +34,10 @@ class ArchiveDecrypt {
             try {
                 const result = await this.tryPassword(password);
                 if (result) {
-                    if (onSuccess) onSuccess(password, attempts);
-                    return password;
+                    // Remove any trailing whitespace (like \r from Windows line endings)
+                    const trimmedPassword = password.trim();
+                    if (onSuccess) onSuccess(trimmedPassword, attempts);
+                    return trimmedPassword;
                 }
             } catch (error) {
                 // Password error will throw exception, continue trying
@@ -53,11 +58,16 @@ class ArchiveDecrypt {
     }
 
     // Hybrid attack (dictionary + brute force)
-    async hybridAttack(dictionary, bruteForceOptions = {}) {
+    async hybridAttack(options = {}) {
+        this.currentDecryptingMode = 'hybrid';
         // Try dictionary attack first
-        const dictResult = await this.dictionaryAttack(dictionary, {
-            onAttempt: bruteForceOptions.onAttempt,
-            onSuccess: bruteForceOptions.onSuccess
+        const dictResult = await this.dictionaryAttack({
+            dictionary: options.dictionary,
+            delay: options.delay,
+            maxAttempts: options.maxAttempts,
+            onAttempt: options.onAttempt,
+            onSuccess: options.onSuccess,
+            onFailure: options.onFailure
         });
 
         if (dictResult) {
@@ -65,7 +75,7 @@ class ArchiveDecrypt {
         }
 
         // Try brute force attack if dictionary attack fails
-        return this.bruteForceAttack(bruteForceOptions);
+        return this.bruteForceAttack(options);
     }
 
     // Clear cache
