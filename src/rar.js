@@ -7,99 +7,98 @@ class RarDecrypt extends ArchiveDecrypt {
     constructor(rarPath) {
         super(rarPath);
         this.buffer = Uint8Array.from(fs.readFileSync(rarPath)).buffer;
-        this.smallestEncryptedFileName = null;
-        this.smallestEncryptedFileInitialized = false;
+        this.targetEncryptedFileName = null;
+        this.targetEncryptedFileInitialized = false;
+        this.rarExtractor = null;
+        this.targetFileNotFound = false;
     }
 
-    // Find the smallest encrypted file for testing password
-    async initializeSmallestEncryptedFile() {
-        if (this.smallestEncryptedFileInitialized) return;
+    async initializeTargetFile() {
+        if (this.targetEncryptedFileInitialized) return;
 
         try {
             const extractor = await unrar.createExtractorFromData({
                 data: this.buffer
             });
+            this.rarExtractor = extractor;
 
             const list = extractor.getFileList();
             const fileHeaders = [...list.fileHeaders];
 
-            let smallestSize = Infinity;
+            let targetFileSize = Infinity;
+            let targetFileName = null;
             for (const header of fileHeaders) {
                 if (!header.flags.directory && header.flags.encrypted) {
-                    if (header.packSize < smallestSize) {
-                        smallestSize = header.packSize;
-                        this.smallestEncryptedFileName = header.name;
+                    if (this.options.targetFileName && header.name === this.options.targetFileName) {
+                        targetFileName = header.name;
+                        targetFileSize = header.packSize;
+                        break;
+                    } else if (!this.options.targetFileName) {
+                        if (header.packSize < targetFileSize) {
+                            targetFileSize = header.packSize;
+                            targetFileName = header.name;
+                        }
                     }
                 }
             }
-            console.log(`Smallest encrypted file found: ${this.smallestEncryptedFileName} (size: ${smallestSize})`);
-            this.smallestEncryptedFileInitialized = true;
+            if (this.options.targetFileName && !targetFileName) {
+                this.targetFileNotFound = true;
+                this.targetEncryptedFileInitialized = true;
+                throw new Error(`Target file ${this.options.targetFileName} not found in archive`);
+            }
+            this.targetEncryptedFileName = targetFileName;
+            console.log(`Target encrypted file found: ${targetFileName} (size: ${targetFileSize})`);
+            this.targetEncryptedFileInitialized = true;
         } catch (error) {
-            console.error('Error initializing smallest encrypted file:', error.message);
-            this.smallestEncryptedFileInitialized = true;
+            console.error('Error initializing target encrypted file:', error.message);
+            this.targetEncryptedFileInitialized = true;
         }
     }
 
-    // Try to decrypt with password
     async tryPassword(password) {
-        // Remove any trailing whitespace (like \r from Windows line endings)
         password = password.trim();
 
-        // Check if extractor instance for this password already exists in cache
         if (this.currentDecryptingMode !== 'bruteForce' && this.extractorCache.has(password)) {
             return this.extractorCache.get(password);
         }
 
-        // Initialize smallest encrypted file if not already done
-        await this.initializeSmallestEncryptedFile();
+        if (this.targetFileNotFound) {
+            throw new Error(`Target file ${this.options.targetFileName} not found in archive`);
+        }
 
         try {
-            // Use the correct API for node-unrar-js
-            // createExtractorFromData is async
-            const extractor = await unrar.createExtractorFromData({
-                data: this.buffer,
-                password: password
-            });
-
-            // Try to extract the smallest encrypted file to verify password
-            if (this.smallestEncryptedFileName) {
-                // Extract just the smallest encrypted file
-                const result = extractor.extract({
-                    files: [this.smallestEncryptedFileName],
+            if (this.targetEncryptedFileName) {
+                const result = this.rarExtractor.extract({
+                    files: [this.targetEncryptedFileName],
                     password: password
                 });
-                // Iterate to trigger extraction
                 const files = [...result.files];
             } else {
-                // If no encrypted file found, extract all to verify
-                const result = extractor.extract();
+                const result = this.rarExtractor.extract();
                 const files = [...result.files];
             }
-
-            // If no error is thrown, password is correct
 
             this.extractorCache.set(password, true);
             return true;
         } catch (error) {
-            // Password error will throw exception
-            if (error.reason === 'ERAR_BAD_PASSWORD' || error.message.includes('bad password') || error.message.includes('Bad password')) {
-                // Cache failure result (except for brute force)
+            if (error.reason === 'ERAR_BAD_PASSWORD' || 
+                (error.message && (error.message.includes('bad password') || error.message.includes('Bad password')))) {
                 if (this.currentDecryptingMode !== 'bruteForce') {
                     this.extractorCache.set(password, false);
                 }
                 return false;
             } else {
-                // Other errors, possibly file corruption
                 console.error('Error during extraction:', error.message);
                 return false;
             }
         }
     }
 
-    // Brute force attack
     async bruteForceAttack(options = {}) {
+        this.checkOptions(options);
+        this.options = options;
         const {
-            charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.',
+            charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
             minLength = 1,
             maxLength = 10,
             maxAttempts = Infinity,
@@ -110,24 +109,28 @@ class RarDecrypt extends ArchiveDecrypt {
         } = options;
         this.currentDecryptingMode = 'bruteForce';
 
+        await this.initializeTargetFile();
+        if (this.targetFileNotFound) {
+            console.error(`Target file ${this.options.targetFileName} not found in archive`);
+            if (onFailure) onFailure();
+            return null;
+        }
+
         let attempts = 0;
 
-        // Use common password generator
         for (const password of generatePasswords(charset, minLength, maxLength, maxAttempts)) {
             attempts++;
             if (onAttempt) onAttempt(password, attempts);
 
             try {
-                // Brute force attack uses tryPassword method
                 const result = await this.tryPassword(password);
                 if (result) {
                     if (onSuccess) onSuccess(password, attempts);
                     return password;
                 }
             } catch (error) {
-                // Password error will throw exception, continue trying
-                if (!(error.reason === 'ERAR_BAD_PASSWORD' || error.message.includes('bad password'))) {
-                    // Other errors, possibly file corruption
+                if (!(error.reason === 'ERAR_BAD_PASSWORD' || 
+                      (error.message && (error.message.includes('bad password') || error.message.includes('Bad password'))))) {
                     console.error('Error during extraction:', error.message);
                 }
             }

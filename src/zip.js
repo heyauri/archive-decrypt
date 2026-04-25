@@ -6,34 +6,67 @@ class ZipDecrypt extends ArchiveDecrypt {
     constructor(zipPath) {
         super(zipPath);
         this.zip = new AdmZip(zipPath);
-        this.firstEntry = null;
+        this.targetEntry = null;
+        this.targetFileNotFound = false;
+        this.entries = this.zip.getEntries();
+    }
+
+    initializeTargetFile() {
+        this.targetEntry = null;
+        this.targetFileNotFound = false;
         
-        // Cache the first file entry to avoid repeated retrieval
-        const entries = this.zip.getEntries();
-        if (entries.length > 0) {
-            this.firstEntry = entries[0];
+        if (this.options.targetFileName) {
+            for (const entry of this.entries) {
+                if (!entry.isDirectory && entry.entryName === this.options.targetFileName) {
+                    this.targetEntry = entry;
+                    break;
+                }
+            }
+            
+            if (!this.targetEntry) {
+                this.targetFileNotFound = true;
+                throw new Error(`Target file ${this.options.targetFileName} not found in archive`);
+            }
+        } else {
+            if (this.entries.length > 0) {
+                for (const entry of this.entries) {
+                    if (!entry.isDirectory) {
+                        this.targetEntry = entry;
+                        break;
+                    }
+                }
+            }
         }
     }
 
-    // Try to decrypt with password
     async tryPassword(password) {
-        if (!this.firstEntry) {
+        if (this.currentDecryptingMode !== 'bruteForce' && this.extractorCache.has(password)) {
+            return this.extractorCache.get(password);
+        }
+        
+        if (this.targetFileNotFound) {
+            throw new Error(`Target file ${this.options.targetFileName} not found in archive`);
+        }
+        
+        if (!this.targetEntry) {
             return false;
         }
         
         try {
-            // Try to read file content, will throw exception if password is wrong
-            this.zip.readFile(this.firstEntry, password);
-            // If successfully read, password is correct
+            this.zip.readFile(this.targetEntry, password);
+            this.extractorCache.set(password, true);
             return true;
         } catch (error) {
-            // Password error will throw exception
+            if (this.currentDecryptingMode !== 'bruteForce') {
+                this.extractorCache.set(password, false);
+            }
             return false;
         }
     }
 
-    // Brute force attack
     async bruteForceAttack(options = {}) {
+        this.checkOptions(options);
+        this.options = options;
         const {
             charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
             minLength = 1,
@@ -44,23 +77,33 @@ class ZipDecrypt extends ArchiveDecrypt {
             onSuccess = null,
             onFailure = null
         } = options;
+        this.currentDecryptingMode = 'bruteForce';
+        
+        this.initializeTargetFile();
+        if (this.targetFileNotFound) {
+            console.error(`Target file ${this.options.targetFileName} not found in archive`);
+            if (onFailure) onFailure();
+            return null;
+        }
 
         let attempts = 0;
 
-        // Use common password generator
         for (const password of generatePasswords(charset, minLength, maxLength, maxAttempts)) {
             attempts++;
             if (onAttempt) onAttempt(password, attempts);
 
             try {
-                // Brute force attack uses tryPassword method
                 const result = await this.tryPassword(password);
                 if (result) {
                     if (onSuccess) onSuccess(password, attempts);
                     return password;
                 }
             } catch (error) {
-                // Password error will throw exception, continue trying
+                if (error.message && error.message.includes('not found in archive')) {
+                    console.error(error.message);
+                    if (onFailure) onFailure();
+                    return null;
+                }
             }
 
             if (delay > 0) {

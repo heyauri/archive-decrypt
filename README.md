@@ -7,10 +7,10 @@ A Node.js package for brute force and dictionary attacks on encrypted archive fi
 - **Dictionary Attack**: Try passwords from a wordlist
 - **Brute Force Attack**: Generate and try all possible password combinations
 - **Hybrid Attack**: Combine dictionary and brute force attacks
-- **Command Line Interface**: Easy to use from the terminal
 - **Programmatic API**: Use in your Node.js applications
 - **Support for Multiple Formats**: Works with both ZIP and RAR files
-- **Password Support**: Uses node-unrar-js for proper RAR password handling
+- **Target File Selection**: Specify a specific file to verify password (faster)
+- **RAR Optimization**: Uses node-unrar-js for proper RAR password handling
 
 ## Installation
 
@@ -19,48 +19,6 @@ npm install archive-decrypt
 ```
 
 ## Usage
-
-### Command Line
-
-#### Dictionary Attack
-
-```bash
-archive-decrypt <archive> --dictionary <wordlist.txt>
-```
-
-#### Brute Force Attack
-
-```bash
-archive-decrypt <archive> --brute-force --charset "0123456789" --min-length 1 --max-length 4
-```
-
-#### Hybrid Attack
-
-```bash
-archive-decrypt <archive> --hybrid --dictionary <wordlist.txt> --charset "0123456789" --min-length 1 --max-length 4
-```
-
-#### Help
-
-```bash
-archive-decrypt --help
-```
-
-```
-Usage: archive-decrypt [options] <archive>
-
-A Node.js package for brute force and dictionary attacks on encrypted archive files
-
-Options:
-  -V, --version          output the version number
-  --dictionary <file>    Use dictionary attack with specified wordlist
-  --brute-force          Use brute force attack
-  --charset <chars>      Charset for brute force (default: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-  --min-length <n>       Minimum password length (default: 1)
-  --max-length <n>       Maximum password length (default: 6)
-  --hybrid               Use hybrid attack (dictionary + brute force)
-  -h, --help             display help for command
-```
 
 ### Programmatic API
 
@@ -74,9 +32,13 @@ const archiveDecrypt = new ArchiveDecrypt('encrypted.archive'); // Can be .zip o
 const dictionary = ['password', '1234', 'qwerty'];
 
 (async () => {
-  const result = await archiveDecrypt.dictionaryAttack(dictionary, {
+  const result = await archiveDecrypt.dictionaryAttack({
+    dictionary: dictionary,
+    targetFileName: 'path/to/file.jpg', // Optional: Verify password by extracting this specific file
     onAttempt: (password, attempts) => {
-      console.log(`Attempt ${attempts}: ${password}`);
+      if (attempts % 100 === 0) {
+        console.log(`Attempt ${attempts}: ${password}`);
+      }
     },
     onSuccess: (password, attempts) => {
       console.log(`Success! Password found: ${password} (${attempts} attempts)`);
@@ -100,8 +62,11 @@ const archiveDecrypt = new ArchiveDecrypt('encrypted.archive'); // Can be .zip o
     charset: '0123456789',
     minLength: 1,
     maxLength: 4,
+    targetFileName: 'path/to/file.jpg', // Optional: Verify password by extracting this specific file
     onAttempt: (password, attempts) => {
-      console.log(`Attempt ${attempts}: ${password}`);
+      if (attempts % 100 === 0) {
+        console.log(`Attempt ${attempts}: ${password}`);
+      }
     },
     onSuccess: (password, attempts) => {
       console.log(`Success! Password found: ${password} (${attempts} attempts)`);
@@ -123,12 +88,16 @@ const archiveDecrypt = new ArchiveDecrypt('encrypted.archive'); // Can be .zip o
 const dictionary = ['password', '1234', 'qwerty'];
 
 (async () => {
-  const result = await archiveDecrypt.hybridAttack(dictionary, {
+  const result = await archiveDecrypt.hybridAttack({
+    dictionary: dictionary,
     charset: '0123456789',
     minLength: 1,
     maxLength: 4,
+    targetFileName: 'path/to/file.jpg', // Optional: Verify password by extracting this specific file
     onAttempt: (password, attempts) => {
-      console.log(`Attempt ${attempts}: ${password}`);
+      if (attempts % 100 === 0) {
+        console.log(`Attempt ${attempts}: ${password}`);
+      }
     },
     onSuccess: (password, attempts) => {
       console.log(`Success! Password found: ${password} (${attempts} attempts)`);
@@ -142,31 +111,33 @@ const dictionary = ['password', '1234', 'qwerty'];
 
 ## Options
 
-### Dictionary Attack Options
+### Common Options
 
-- `dictionary`: Array of passwords to try
+All attack methods support these options:
+
+- `targetFileName`: Optional. Verify password by extracting this specific file. If the file doesn't exist in the archive, the attack will terminate immediately.
 - `maxAttempts`: Maximum number of attempts (default: Infinity)
 - `delay`: Delay between attempts in milliseconds (default: 0)
 - `onAttempt`: Callback function called for each attempt
 - `onSuccess`: Callback function called when password is found
 - `onFailure`: Callback function called when password is not found
+
+### Dictionary Attack Options
+
+- `dictionary`: Array of passwords to try
 
 ### Brute Force Attack Options
 
 - `charset`: Characters to use for password generation (default: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 - `minLength`: Minimum password length (default: 1)
 - `maxLength`: Maximum password length (default: 6)
-- `maxAttempts`: Maximum number of attempts (default: Infinity)
-- `delay`: Delay between attempts in milliseconds (default: 0)
-- `onAttempt`: Callback function called for each attempt
-- `onSuccess`: Callback function called when password is found
-- `onFailure`: Callback function called when password is not found
 
 ## Performance Considerations
 
 - **Dictionary Attack**: Fastest option, especially with a good wordlist
 - **Brute Force Attack**: Can be very slow for long passwords or large character sets
 - **Hybrid Attack**: Balances speed and coverage
+- **Target File**: Using `targetFileName` can significantly improve performance by only verifying a specific file (preferably small)
 
 ## Security Note
 
@@ -174,4 +145,7 @@ This tool is intended for educational purposes only. Always obtain proper author
 
 ## Limitations
 
-- The password verification process uses `readFile` method, which attempts to read the first file in the zip archive. This is more efficient than extracting the entire archive.
+- For RAR files, requires node-unrar-js for password verification
+- For ZIP files, uses yauzl for password verification
+- Large character sets and long passwords can result in very slow brute force attacks
+- Target file name must match exactly, including path and case sensitivity

@@ -5,15 +5,26 @@ class ArchiveDecrypt {
         this.archivePath = archivePath;
         this.currentDecryptingMode = null;
         this.extractorCache = new Map(); // Cache extractor instances
+        this.options = {};
     }
 
-    // Try to decrypt with password
     async tryPassword(password) {
         throw new Error('Not implemented');
     }
 
-    // Dictionary attack
+    checkOptions(options) {
+        if (Object.prototype.toString.call(options) !== '[object Object]') {
+            throw new Error('Options must be an object');
+        }
+    }
+
+    async initializeTargetFile() {
+        // Base class doesn't need to do anything, let subclasses override
+    }
+
     async dictionaryAttack(options = {}) {
+        this.checkOptions(options);
+        this.options = options;
         const {
             maxAttempts = Infinity,
             dictionary = [],
@@ -23,7 +34,9 @@ class ArchiveDecrypt {
             onFailure = null
         } = options;
         this.currentDecryptingMode = 'dictionary';
-
+        
+        await this.initializeTargetFile();
+        
         let attempts = 0;
         for (const password of dictionary) {
             if (attempts >= maxAttempts) break;
@@ -34,13 +47,16 @@ class ArchiveDecrypt {
             try {
                 const result = await this.tryPassword(password);
                 if (result) {
-                    // Remove any trailing whitespace (like \r from Windows line endings)
                     const trimmedPassword = password.trim();
                     if (onSuccess) onSuccess(trimmedPassword, attempts);
                     return trimmedPassword;
                 }
             } catch (error) {
-                // Password error will throw exception, continue trying
+                if (error.message && error.message.includes('not found in archive')) {
+                    console.error(error.message);
+                    if (onFailure) onFailure();
+                    return null;
+                }
             }
 
             if (delay > 0) {
@@ -52,33 +68,30 @@ class ArchiveDecrypt {
         return null;
     }
 
-    // Brute force attack
     async bruteForceAttack(options = {}) {
         throw new Error('Not implemented');
     }
 
-    // Hybrid attack (dictionary + brute force)
     async hybridAttack(options = {}) {
+        this.checkOptions(options);
+        this.options = options;
         this.currentDecryptingMode = 'hybrid';
-        // Try dictionary attack first
-        const dictResult = await this.dictionaryAttack({
+        const dictResult = await this.dictionaryAttack(Object.assign({}, this.options, {
             dictionary: options.dictionary,
             delay: options.delay,
             maxAttempts: options.maxAttempts,
             onAttempt: options.onAttempt,
             onSuccess: options.onSuccess,
             onFailure: options.onFailure
-        });
+        }));
 
         if (dictResult) {
             return dictResult;
         }
 
-        // Try brute force attack if dictionary attack fails
         return this.bruteForceAttack(options);
     }
 
-    // Clear cache
     clearCache() {
         this.extractorCache.clear();
     }
