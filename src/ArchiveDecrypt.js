@@ -2,6 +2,15 @@
 
 const MAX_CACHE_SIZE = 1000;
 
+const CHARSET_PRESETS = {
+    lowercase: 'abcdefghijklmnopqrstuvwxyz',
+    uppercase: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+    numbers: '0123456789',
+    symbols: '!@#$%^&*()_+-=[]{}|;:\'",./<>?',
+    all: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:\'",./<>?',
+    alphanumeric: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+};
+
 class ArchiveDecrypt {
     constructor(archivePath) {
         this.archivePath = archivePath;
@@ -10,6 +19,8 @@ class ArchiveDecrypt {
         this.options = {};
         this.targetFile = null;
         this.targetFileNotFound = false;
+        this.startTime = null;
+        this.stats = null;
     }
 
     async tryPassword(password) {
@@ -19,6 +30,14 @@ class ArchiveDecrypt {
     checkOptions(options) {
         if (Object.prototype.toString.call(options) !== '[object Object]') {
             throw new Error('Options must be an object');
+        }
+        if (options.minLength !== undefined && options.maxLength !== undefined) {
+            if (options.minLength > options.maxLength) {
+                throw new Error('minLength must be less than or equal to maxLength');
+            }
+        }
+        if (options.charset && CHARSET_PRESETS[options.charset]) {
+            options.charset = CHARSET_PRESETS[options.charset];
         }
     }
 
@@ -46,13 +65,45 @@ class ArchiveDecrypt {
     }
 
     isPasswordError(error) {
-        return error.message && (error.message.includes('bad password') || 
-                                  error.message.includes('Bad password') ||
-                                  error.message.includes('not found in archive') === false);
+        return error.message && (error.message.includes('bad password') ||
+            error.message.includes('Bad password') ||
+            error.message.includes('not found in archive') === false);
     }
 
     isTargetFileError(error) {
         return error.message && error.message.includes('not found in archive');
+    }
+
+    startTiming() {
+        this.startTime = Date.now();
+        this.stats = {
+            startTime: this.startTime,
+            attempts: 0,
+            success: null
+        };
+    }
+
+    getElapsedTime() {
+        return Date.now() - this.startTime;
+    }
+
+    getSpeed(attempts) {
+        const elapsed = this.getElapsedTime() / 1000;
+        return elapsed > 0 ? (attempts / elapsed).toFixed(1) : 0;
+    }
+
+    getETA(attempts, total) {
+        if (!total || total === Infinity) return null;
+        const speed = attempts / (this.getElapsedTime() / 1000);
+        const remaining = total - attempts;
+        if (speed <= 0) return null;
+        return Math.ceil(remaining / speed);
+    }
+
+    formatTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins > 0 ? `${mins}m ` : ''}${secs}s`;
     }
 
     async dictionaryAttack(options = {}) {
@@ -68,21 +119,34 @@ class ArchiveDecrypt {
         } = options;
         this.currentDecryptingMode = 'dictionary';
         const safeDelay = this.validateDelay(delay);
-        
+
         await this.initializeTargetFile();
-        
+
         let attempts = 0;
+        this.startTiming();
+        const total = Math.min(dictionary.length, maxAttempts);
         for (const password of dictionary) {
             if (attempts >= maxAttempts) break;
 
             attempts++;
-            if (onAttempt) onAttempt(password, attempts);
+            this.stats.attempts = attempts;
+
+            if (onAttempt) {
+                const speed = this.getSpeed(attempts);
+                const eta = this.getETA(attempts, total);
+                onAttempt(password, attempts, { speed, eta, total });
+            }
 
             try {
                 const result = await this.tryPassword(password);
                 if (result) {
                     const trimmedPassword = password.trim();
-                    if (onSuccess) onSuccess(trimmedPassword, attempts);
+                    this.stats.success = true;
+                    if (onSuccess) {
+                        const elapsed = this.getElapsedTime() / 1000;
+                        const speed = this.getSpeed(attempts);
+                        onSuccess(trimmedPassword, attempts, { elapsed, speed });
+                    }
                     return trimmedPassword;
                 }
             } catch (error) {
@@ -98,7 +162,12 @@ class ArchiveDecrypt {
             }
         }
 
-        if (onFailure) onFailure();
+        this.stats.success = false;
+        if (onFailure) {
+            const elapsed = this.getElapsedTime() / 1000;
+            const speed = this.getSpeed(attempts);
+            onFailure({ elapsed, speed, attempts });
+        }
         return null;
     }
 
@@ -116,7 +185,7 @@ class ArchiveDecrypt {
             maxAttempts: options.maxAttempts,
             onAttempt: options.onAttempt,
             onSuccess: options.onSuccess,
-            onFailure: options.onFailure
+            onFailure: null
         }));
 
         if (dictResult) {

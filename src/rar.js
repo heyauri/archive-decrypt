@@ -57,13 +57,10 @@ class RarDecrypt extends ArchiveDecrypt {
     async tryPassword(password) {
         password = password.trim();
 
-        if (this.currentDecryptingMode !== 'bruteForce') {
-            const cached = this.getCachedResult(password);
-            if (cached !== undefined) {
-                return cached;
-            }
+        const cached = this.getCachedResult(password);
+        if (cached !== undefined) {
+            return cached;
         }
-
 
         if (this.targetFileNotFound) {
             throw new Error(`Target file ${this.options.targetFileName} not found in archive`);
@@ -86,9 +83,7 @@ class RarDecrypt extends ArchiveDecrypt {
         } catch (error) {
             if (error.reason === 'ERAR_BAD_PASSWORD' ||
                 (error.message && (error.message.includes('bad password') || error.message.includes('Bad password')))) {
-                if (this.currentDecryptingMode !== 'bruteForce') {
-                    this.setCache(password, false);
-                }
+                this.setCache(password, false);
                 return false;
             } else {
                 console.error('Error during extraction:', error.message);
@@ -121,15 +116,33 @@ class RarDecrypt extends ArchiveDecrypt {
         }
 
         let attempts = 0;
+        this.startTiming();
+
+        let total = 0;
+        for (let i = minLength; i <= maxLength; i++) {
+            total += Math.pow(charset.length, i);
+        }
+        total = Math.min(total, maxAttempts);
 
         for (const password of generatePasswords(charset, minLength, maxLength, maxAttempts)) {
             attempts++;
-            if (onAttempt) onAttempt(password, attempts);
+            this.stats.attempts = attempts;
+
+            if (onAttempt) {
+                const speed = this.getSpeed(attempts);
+                const eta = this.getETA(attempts, total);
+                onAttempt(password, attempts, { speed, eta, total });
+            }
 
             try {
                 const result = await this.tryPassword(password);
                 if (result) {
-                    if (onSuccess) onSuccess(password, attempts);
+                    this.stats.success = true;
+                    if (onSuccess) {
+                        const elapsed = this.getElapsedTime() / 1000;
+                        const speed = this.getSpeed(attempts);
+                        onSuccess(password, attempts, { elapsed, speed });
+                    }
                     return password;
                 }
             } catch (error) {
@@ -144,7 +157,12 @@ class RarDecrypt extends ArchiveDecrypt {
             }
         }
 
-        if (onFailure) onFailure();
+        this.stats.success = false;
+        if (onFailure) {
+            const elapsed = this.getElapsedTime() / 1000;
+            const speed = this.getSpeed(attempts);
+            onFailure({ elapsed, speed, attempts });
+        }
         return null;
     }
 }
