@@ -1,6 +1,6 @@
 # ArchiveDecrypt
 
-A Node.js package for brute force and dictionary attacks on encrypted archive files.
+A Node.js package for brute force and dictionary attacks on encrypted archive files (ZIP and RAR).
 
 ## Features
 
@@ -14,6 +14,23 @@ A Node.js package for brute force and dictionary attacks on encrypted archive fi
 - **Character Set Presets**: Use predefined character sets like `lowercase`, `numbers`, etc.
 - **Progress Display**: Shows speed, ETA, and progress
 - **Statistics**: Shows elapsed time, speed, and total attempts
+- **Automatic Smallest File Selection**: When no target file specified, automatically uses the smallest file for faster verification
+- **Smart Error Handling**: Handles various zlib and checksum errors that occur with wrong passwords
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+  - [Command Line Interface](#command-line-interface)
+  - [Programmatic API](#programmatic-api)
+- [Character Set Presets](#character-set-presets)
+- [Options](#options)
+- [Performance Considerations](#performance-considerations)
+- [Security Note](#security-note)
+- [Limitations](#limitations)
+- [FAQ](#faq)
+- [License](#license)
 
 ## Installation
 
@@ -21,11 +38,52 @@ A Node.js package for brute force and dictionary attacks on encrypted archive fi
 npm install archive-decrypt
 ```
 
+Or using yarn:
+
+```bash
+yarn add archive-decrypt
+```
+
+## Quick Start
+
+### CLI Quick Start
+
+```bash
+# Dictionary attack
+archive-decrypt dictionary encrypted.zip passwords.txt
+
+# Brute force attack with numbers
+archive-decrypt brute-force encrypted.zip --charset numbers --min-length 4 --max-length 6
+
+# Hybrid attack
+archive-decrypt hybrid encrypted.zip passwords.txt --charset lowercase --min-length 3 --max-length 5
+```
+
+### API Quick Start
+
+```javascript
+const ArchiveDecrypt = require('archive-decrypt');
+
+(async () => {
+  const archiveDecrypt = new ArchiveDecrypt('encrypted.zip');
+
+  const result = await archiveDecrypt.bruteForceAttack({
+    charset: 'numbers',
+    minLength: 4,
+    maxLength: 6,
+    onSuccess: (password) => {
+      console.log(`Found password: ${password}`);
+    }
+  });
+})();
+```
+
 ## Usage
 
 ### Command Line Interface
 
 #### Dictionary Attack
+
 ```bash
 # Basic usage
 archive-decrypt dictionary encrypted.zip passwords.txt
@@ -39,6 +97,7 @@ archive-decrypt dictionary encrypted.zip passwords.txt \
 ```
 
 #### Brute Force Attack
+
 ```bash
 # Basic usage with default character set
 archive-decrypt brute-force encrypted.zip
@@ -56,6 +115,7 @@ archive-decrypt brute-force encrypted.zip --charset "abc123!@#"
 ```
 
 #### Hybrid Attack
+
 ```bash
 # Basic usage
 archive-decrypt hybrid encrypted.zip passwords.txt
@@ -69,17 +129,20 @@ archive-decrypt hybrid encrypted.zip passwords.txt \
 ```
 
 ### Character Set Presets
+
 The following character set presets are available:
+
 - `lowercase`: `abcdefghijklmnopqrstuvwxyz`
 - `uppercase`: `ABCDEFGHIJKLMNOPQRSTUVWXYZ`
 - `numbers`: `0123456789`
 - `symbols`: `!@#$%^&*()_+-=[]{}|;:'",./<>?`
-- `all`: `abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:'",./<>?`
-- `alphanumeric`: same as `all`
+- `all`: All of the above combined
+- `alphanumeric`: Lowercase, uppercase, and numbers (default)
 
 ### Programmatic API
 
 #### Dictionary Attack
+
 ```javascript
 const ArchiveDecrypt = require('archive-decrypt');
 
@@ -112,6 +175,7 @@ const dictionary = ['password', '1234', 'qwerty'];
 ```
 
 #### Brute Force Attack
+
 ```javascript
 const ArchiveDecrypt = require('archive-decrypt');
 
@@ -139,6 +203,7 @@ const archiveDecrypt = new ArchiveDecrypt('encrypted.archive'); // Can be .zip o
 ```
 
 #### Hybrid Attack
+
 ```javascript
 const ArchiveDecrypt = require('archive-decrypt');
 
@@ -171,6 +236,7 @@ const dictionary = ['password', '1234', 'qwerty'];
 ## Options
 
 ### Common Options
+
 All attack methods support these options:
 
 - `targetFileName`: Optional. Verify password by extracting this specific file. If the file doesn't exist in the archive, the attack will terminate immediately. If not specified, the smallest file will be automatically selected for faster verification.
@@ -182,25 +248,29 @@ All attack methods support these options:
 - `onFailure`: Callback function called when password is not found. Receives parameters: ({ elapsed, speed, attempts })
 
 ### Dictionary Attack Options
+
 - `dictionary`: Array of passwords to try
 
 ### Brute Force Attack Options
-- `charset`: Characters to use for password generation, or a preset (lowercase, uppercase, numbers, symbols, all, alphanumeric) (default: all letters and numbers)
+
+- `charset`: Characters to use for password generation, or a preset (lowercase, uppercase, numbers, symbols, all, alphanumeric) (default: alphanumeric)
 - `minLength`: Minimum password length (default: 1)
-- `maxLength`: Maximum password length (default: 6)
+- `maxLength`: Maximum password length (default: 10)
 
 ## Performance Considerations
 
 - **Dictionary Attack**: Fastest option, especially with a good wordlist
 - **Brute Force Attack**: Can be very slow for long passwords or large character sets
-- **Hybrid Attack**: Balances speed and coverage
+- **Hybrid Attack**: Balances speed and coverage by trying dictionary first, then brute force
 - **Target File**: Using `targetFileName` can significantly improve performance by only verifying a specific file (preferably small). If not specified, the smallest file in the archive will be automatically selected.
 - **File Size Matters**: Larger files take longer to decrypt and verify. Always prefer using the smallest file possible for password verification.
 - **RAR vs ZIP**: ZIP files are generally faster to verify than RAR files
+- **Character Set Size**: Smaller character sets will result in faster brute force attacks
+- **Password Length**: The number of combinations grows exponentially with password length
 
 ## Security Note
 
-This tool is intended for educational purposes only. Always obtain proper authorization before attempting to decrypt any encrypted files.
+⚠️ **Important**: This tool is intended for educational purposes only. Always obtain proper authorization before attempting to decrypt any encrypted files. Unauthorized access to encrypted content may be illegal in your jurisdiction.
 
 ## Limitations
 
@@ -208,3 +278,30 @@ This tool is intended for educational purposes only. Always obtain proper author
 - For ZIP files, uses adm-zip for password verification
 - Large character sets and long passwords can result in very slow brute force attacks
 - Target file name must match exactly, including path and case sensitivity
+- Does not support all compression methods or encryption algorithms
+
+## FAQ
+
+### Q: How do I speed up the brute force attack?
+
+A: Use the smallest file in the archive for verification, use smaller character sets, and reduce the password length range.
+
+### Q: What if I don't know the target file name?
+
+A: The tool will automatically select the smallest encrypted file in the archive.
+
+### Q: Why am I seeing zlib errors?
+
+A: These are normal when trying wrong passwords. The tool handles them by default with `ignoreUnexpectedError: true`.
+
+### Q: Can I pause and resume attacks?
+
+A: Not currently, but it's a planned feature for future versions.
+
+## License
+
+MIT
+
+---
+
+**Disclaimer**: This tool is provided for educational and legitimate password recovery purposes only. Always respect the law and other people's privacy.

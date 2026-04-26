@@ -140,3 +140,4 @@ vite.config.ts.timestamp-*
 
 files/
 package-lock.json
+.editorconfig

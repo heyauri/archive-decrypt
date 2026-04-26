@@ -30,6 +30,9 @@ class ArchiveDecrypt {
         this.targetFileNotFound = false;
         this.startTime = null;
         this.stats = null;
+        // to avoid directly exit while mode is hybrid but dictionary attack failed
+        this.failureModeCount = 0;
+        this.failureModeLimit = 1;
     }
 
     async tryPassword(password) {
@@ -124,7 +127,7 @@ class ArchiveDecrypt {
      */
     async _attack(options, mode, passwordGenerator, total) {
         this.checkOptions(options);
-        this.options = options;
+        this.options = Object.assign({}, this.options, options);
         const {
             maxAttempts = Infinity,
             delay = 0,
@@ -186,14 +189,16 @@ class ArchiveDecrypt {
                 await new Promise(resolve => setTimeout(resolve, safeDelay));
             }
         }
-
-        this.stats.success = false;
-        if (onFailure) {
-            const elapsed = this.getElapsedTime() / 1000;
-            const speed = this.getSpeed(attempts);
-            onFailure({ elapsed, speed, attempts });
+        this.failureModeCount++;
+        if (this.failureModeCount >= this.failureModeLimit) {
+            this.stats.success = false;
+            if (onFailure) {
+                const elapsed = this.getElapsedTime() / 1000;
+                const speed = this.getSpeed(attempts);
+                onFailure({ elapsed, speed, attempts });
+            }
+            return null;
         }
-        return null;
     }
 
     async dictionaryAttack(options = {}) {
@@ -224,7 +229,6 @@ class ArchiveDecrypt {
             maxLength = 10,
             maxAttempts = Infinity
         } = options;
-
         let total = 0;
         for (let i = minLength; i <= maxLength; i++) {
             total += Math.pow(charset.length, i);
@@ -238,22 +242,12 @@ class ArchiveDecrypt {
     }
 
     async hybridAttack(options = {}) {
-        this.checkOptions(options);
-        this.options = options;
         this.currentDecryptingMode = 'hybrid';
-        const dictResult = await this.dictionaryAttack(Object.assign({}, this.options, {
-            dictionary: options.dictionary,
-            delay: options.delay,
-            maxAttempts: options.maxAttempts,
-            onAttempt: options.onAttempt,
-            onSuccess: options.onSuccess,
-            onFailure: null
-        }));
-
+        this.failureModeLimit = 2;
+        const dictResult = await this.dictionaryAttack(options);
         if (dictResult) {
             return dictResult;
         }
-
         return this.bruteForceAttack(options);
     }
 }

@@ -3,3 +3,4 @@ files
 package-lock.json
 .git
 .gitignore
+.editorconfig

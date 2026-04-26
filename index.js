@@ -6,7 +6,7 @@ class ArchiveDecrypt {
     constructor(archivePath) {
         this.archivePath = archivePath;
         const ext = path.extname(archivePath).toLowerCase();
-        
+
         if (ext === '.zip') {
             this.decryptor = new ZipDecrypt(archivePath);
         } else if (ext === '.rar') {
