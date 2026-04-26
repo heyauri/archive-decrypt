@@ -217,7 +217,7 @@ class ArchiveDecrypt {
 
             try {
                 const result = await this.tryPassword(password);
-                if (result) {
+                if (result.status === true) {
                     this.stats.success = true;
                     if (onSuccess) {
                         const elapsed = this.getElapsedTime() / 1000;

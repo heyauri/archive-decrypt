@@ -74,7 +74,7 @@ class RarDecrypt extends ArchiveDecrypt {
                     message: 'password_error'
                 }
             } else {
-                console.error('Error during extraction:',error.reason, error.message);
+                console.error('Error during extraction:', error.reason, error.message);
                 return {
                     status: false,
                     file,
