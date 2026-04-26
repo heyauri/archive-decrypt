@@ -173,9 +173,10 @@ const dictionary = ['password', '1234', 'qwerty'];
 ### Common Options
 All attack methods support these options:
 
-- `targetFileName`: Optional. Verify password by extracting this specific file. If the file doesn't exist in the archive, the attack will terminate immediately.
+- `targetFileName`: Optional. Verify password by extracting this specific file. If the file doesn't exist in the archive, the attack will terminate immediately. If not specified, the smallest file will be automatically selected for faster verification.
 - `maxAttempts`: Maximum number of attempts (default: Infinity)
 - `delay`: Delay between attempts in milliseconds (default: 0)
+- `ignoreUnexpectedError`: Ignore unexpected errors and continue trying (default: true). This helps with zlib errors (Z_DATA_ERROR, CRC32 checksum failed, etc.) that can occur when trying wrong passwords.
 - `onAttempt`: Callback function called for each attempt. Receives parameters: (password, attempts, { speed, eta, total })
 - `onSuccess`: Callback function called when password is found. Receives parameters: (password, attempts, { elapsed, speed })
 - `onFailure`: Callback function called when password is not found. Receives parameters: ({ elapsed, speed, attempts })
@@ -193,7 +194,8 @@ All attack methods support these options:
 - **Dictionary Attack**: Fastest option, especially with a good wordlist
 - **Brute Force Attack**: Can be very slow for long passwords or large character sets
 - **Hybrid Attack**: Balances speed and coverage
-- **Target File**: Using `targetFileName` can significantly improve performance by only verifying a specific file (preferably small)
+- **Target File**: Using `targetFileName` can significantly improve performance by only verifying a specific file (preferably small). If not specified, the smallest file in the archive will be automatically selected.
+- **File Size Matters**: Larger files take longer to decrypt and verify. Always prefer using the smallest file possible for password verification.
 - **RAR vs ZIP**: ZIP files are generally faster to verify than RAR files
 
 ## Security Note

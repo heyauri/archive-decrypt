@@ -23,7 +23,8 @@ class ArchiveDecrypt {
             minLength: null,
             maxLength: null,
             maxAttempts: null,
-            multiFileValidate: false
+            multiFileValidate: false,
+            ignoreUnexpectedError: true
         };
         this.targetFile = null;
         this.targetFileNotFound = false;
@@ -55,8 +56,9 @@ class ArchiveDecrypt {
                         this.passwordCache.set(password, result);
                     }
                     return result;
-                } else if (result.message === 'unexpected_error') {
-                    throw new Error(`Unexpected error: ${result.extra}`);
+                } else if (result.message === 'unexpected_error' && !this.options.ignoreUnexpectedError) {
+                    console.error(`Unexpected error occurred while decrypting file with password ${password}: ${result.extra}`);
+                    return result;
                 }
             }
         } catch (error) {
@@ -112,81 +114,25 @@ class ArchiveDecrypt {
         return Math.ceil(remaining / speed);
     }
 
-    async dictionaryAttack(options = {}) {
+    /**
+     * Common attack method for dictionary and brute force attacks
+     * @param {Object} options - Attack options
+     * @param {string} mode - Attack mode ('dictionary' or 'bruteForce')
+     * @param {Function} passwordGenerator - Password generator function, returns an iterable object
+     * @param {number} total - Total attempts to make
+     * @private
+     */
+    async _attack(options, mode, passwordGenerator, total) {
         this.checkOptions(options);
         this.options = options;
         const {
-            maxAttempts = Infinity,
-            dictionary = [],
-            delay = 0,
-            onAttempt = null,
-            onSuccess = null,
-            onFailure = null
-        } = options;
-        this.currentDecryptingMode = 'dictionary';
-        const safeDelay = this.validateDelay(delay);
-
-        await this.initializeTargetFile();
-
-        let attempts = 0;
-        this.startTiming();
-        const total = Math.min(dictionary.length, maxAttempts);
-        for (const password of dictionary) {
-            if (attempts >= maxAttempts) break;
-
-            attempts++;
-            this.stats.attempts = attempts;
-
-            if (onAttempt) {
-                const speed = this.getSpeed(attempts);
-                const eta = this.getETA(attempts, total);
-                onAttempt(password, attempts, { speed, eta, total });
-            }
-
-            try {
-                const result = await this.tryPassword(password);
-                if (result.status === true) {
-                    this.stats.success = true;
-                    if (onSuccess) {
-                        const elapsed = this.getElapsedTime() / 1000;
-                        const speed = this.getSpeed(attempts);
-                        onSuccess(password, attempts, { elapsed, speed });
-                    }
-                    return password;
-                }
-            } catch (error) {
-                console.error(error);
-                if (onFailure) onFailure();
-                return null;
-            }
-
-            if (safeDelay > 0) {
-                await new Promise(resolve => setTimeout(resolve, safeDelay));
-            }
-        }
-        this.stats.success = false;
-        if (onFailure) {
-            const elapsed = this.getElapsedTime() / 1000;
-            const speed = this.getSpeed(attempts);
-            onFailure({ elapsed, speed, attempts });
-        }
-        return null;
-    }
-
-    async bruteForceAttack(options = {}) {
-        this.checkOptions(options);
-        this.options = options;
-        const {
-            charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-            minLength = 1,
-            maxLength = 10,
             maxAttempts = Infinity,
             delay = 0,
             onAttempt = null,
             onSuccess = null,
             onFailure = null
         } = options;
-        this.currentDecryptingMode = 'bruteForce';
+        this.currentDecryptingMode = mode;
         const safeDelay = this.validateDelay(delay);
 
         await this.initializeTargetFile();
@@ -198,26 +144,23 @@ class ArchiveDecrypt {
 
         let attempts = 0;
         this.startTiming();
+        const actualTotal = Math.min(total, maxAttempts);
 
-        let total = 0;
-        for (let i = minLength; i <= maxLength; i++) {
-            total += Math.pow(charset.length, i);
-        }
-        total = Math.min(total, maxAttempts);
+        for (const password of passwordGenerator()) {
+            if (attempts >= maxAttempts) break;
 
-        for (const password of utils.generatePasswords(charset, minLength, maxLength, maxAttempts)) {
             attempts++;
             this.stats.attempts = attempts;
 
             if (onAttempt) {
                 const speed = this.getSpeed(attempts);
-                const eta = this.getETA(attempts, total);
-                onAttempt(password, attempts, { speed, eta, total });
+                const eta = this.getETA(attempts, actualTotal);
+                onAttempt(password, attempts, { speed, eta, total: actualTotal });
             }
 
             try {
                 const result = await this.tryPassword(password);
-                if (result.status === true) {
+                if (result && result.status === true) {
                     this.stats.success = true;
                     if (onSuccess) {
                         const elapsed = this.getElapsedTime() / 1000;
@@ -226,12 +169,17 @@ class ArchiveDecrypt {
                     }
                     return password;
                 }
-            } catch (error) {
-                if (this.isTargetFileError(error)) {
-                    console.error(error.message);
-                    if (onFailure) onFailure();
-                    return null;
+                if (result && result.message === 'unexpected_error') {
+                    if (this.options.ignoreUnexpectedError) {
+                        continue;
+                    } else {
+                        throw new Error(`Unexpected error: ${result.extra}`);
+                    }
                 }
+            } catch (error) {
+                console.error("ArchiveDecrypt encounter attack error:", error);
+                if (onFailure) onFailure();
+                return null;
             }
 
             if (safeDelay > 0) {
@@ -246,6 +194,47 @@ class ArchiveDecrypt {
             onFailure({ elapsed, speed, attempts });
         }
         return null;
+    }
+
+    async dictionaryAttack(options = {}) {
+        const { dictionary = [], maxAttempts = Infinity } = options;
+        const total = dictionary.length;
+
+        const passwordGenerator = () => {
+            let index = 0;
+            return {
+                [Symbol.iterator]: () => ({
+                    next: () => {
+                        if (index < dictionary.length && index < maxAttempts) {
+                            return { value: dictionary[index++], done: false };
+                        }
+                        return { done: true };
+                    }
+                })
+            };
+        };
+
+        return this._attack(options, 'dictionary', passwordGenerator, total);
+    }
+
+    async bruteForceAttack(options = {}) {
+        const {
+            charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+            minLength = 1,
+            maxLength = 10,
+            maxAttempts = Infinity
+        } = options;
+
+        let total = 0;
+        for (let i = minLength; i <= maxLength; i++) {
+            total += Math.pow(charset.length, i);
+        }
+
+        const passwordGenerator = () => {
+            return utils.generatePasswords(charset, minLength, maxLength, maxAttempts);
+        };
+
+        return this._attack(options, 'bruteForce', passwordGenerator, total);
     }
 
     async hybridAttack(options = {}) {
