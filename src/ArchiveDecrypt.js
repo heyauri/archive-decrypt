@@ -1,6 +1,7 @@
 // Archive file decryption base class
 
-const MAX_CACHE_SIZE = 1000;
+const utils = require('./utils');
+const MAX_CACHE_SIZE = 10000;
 
 const CHARSET_PRESETS = {
     lowercase: 'abcdefghijklmnopqrstuvwxyz',
@@ -15,8 +16,15 @@ class ArchiveDecrypt {
     constructor(archivePath) {
         this.archivePath = archivePath;
         this.currentDecryptingMode = null;
-        this.extractorCache = new Map();
-        this.options = {};
+        this.passwordCache = new utils.Cache(MAX_CACHE_SIZE);
+        this.options = {
+            targetFileName: null,
+            charset: null,
+            minLength: null,
+            maxLength: null,
+            maxAttempts: null,
+            multiFileValidate: false
+        };
         this.targetFile = null;
         this.targetFileNotFound = false;
         this.startTime = null;
@@ -24,7 +32,36 @@ class ArchiveDecrypt {
     }
 
     async tryPassword(password) {
-        throw new Error('Not implemented');
+        if (this.currentDecryptingMode !== 'bruteForce') {
+            const cached = this.passwordCache.get(password);
+            if (cached !== undefined) {
+                return cached;
+            }
+        }
+
+        if (this.targetFileNotFound) {
+            throw new Error(`Target file ${this.options.targetFileName} not found in archive`);
+        }
+
+        try {
+            let result = await this.decryptFile(this.targetFile, password);
+            if (result.status === true) {
+                this.passwordCache.set(password, result);
+                return result;
+            }
+            if (result.status === false) {
+                if (result.message === 'password_error') {
+                    if (this.currentDecryptingMode !== 'bruteForce') {
+                        this.passwordCache.set(password, result);
+                    }
+                    return result;
+                } else if (result.message === 'unexpected_error') {
+                    throw new Error(`Unexpected error: ${result.extra}`);
+                }
+            }
+        } catch (error) {
+            console.error(error);
+        }
     }
 
     checkOptions(options) {
@@ -45,33 +82,8 @@ class ArchiveDecrypt {
         // Base class doesn't need to do anything, let subclasses override
     }
 
-    setCache(password, result) {
-        if (this.extractorCache.size >= MAX_CACHE_SIZE) {
-            const firstKey = this.extractorCache.keys().next().value;
-            this.extractorCache.delete(firstKey);
-        }
-        this.extractorCache.set(password, result);
-    }
-
-    getCachedResult(password) {
-        if (this.currentDecryptingMode !== 'bruteForce' && this.extractorCache.has(password)) {
-            return this.extractorCache.get(password);
-        }
-        return undefined;
-    }
-
     validateDelay(delay) {
         return Math.max(delay, 0);
-    }
-
-    isPasswordError(error) {
-        return error.message && (error.message.includes('bad password') ||
-            error.message.includes('Bad password') ||
-            error.message.includes('not found in archive') === false);
-    }
-
-    isTargetFileError(error) {
-        return error.message && error.message.includes('not found in archive');
     }
 
     startTiming() {
@@ -98,12 +110,6 @@ class ArchiveDecrypt {
         const remaining = total - attempts;
         if (speed <= 0) return null;
         return Math.ceil(remaining / speed);
-    }
-
-    formatTime(seconds) {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins > 0 ? `${mins}m ` : ''}${secs}s`;
     }
 
     async dictionaryAttack(options = {}) {
@@ -139,15 +145,86 @@ class ArchiveDecrypt {
 
             try {
                 const result = await this.tryPassword(password);
-                if (result) {
-                    const trimmedPassword = password.trim();
+                if (result.status === true) {
                     this.stats.success = true;
                     if (onSuccess) {
                         const elapsed = this.getElapsedTime() / 1000;
                         const speed = this.getSpeed(attempts);
-                        onSuccess(trimmedPassword, attempts, { elapsed, speed });
+                        onSuccess(password, attempts, { elapsed, speed });
                     }
-                    return trimmedPassword;
+                    return password;
+                }
+            } catch (error) {
+                console.error(error);
+                if (onFailure) onFailure();
+                return null;
+            }
+
+            if (safeDelay > 0) {
+                await new Promise(resolve => setTimeout(resolve, safeDelay));
+            }
+        }
+        this.stats.success = false;
+        if (onFailure) {
+            const elapsed = this.getElapsedTime() / 1000;
+            const speed = this.getSpeed(attempts);
+            onFailure({ elapsed, speed, attempts });
+        }
+        return null;
+    }
+
+    async bruteForceAttack(options = {}) {
+        this.checkOptions(options);
+        this.options = options;
+        const {
+            charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+            minLength = 1,
+            maxLength = 10,
+            maxAttempts = Infinity,
+            delay = 0,
+            onAttempt = null,
+            onSuccess = null,
+            onFailure = null
+        } = options;
+        this.currentDecryptingMode = 'bruteForce';
+        const safeDelay = this.validateDelay(delay);
+
+        await this.initializeTargetFile();
+        if (this.targetFileNotFound) {
+            console.error(`Target file ${this.options.targetFileName} not found in archive`);
+            if (onFailure) onFailure();
+            return null;
+        }
+
+        let attempts = 0;
+        this.startTiming();
+
+        let total = 0;
+        for (let i = minLength; i <= maxLength; i++) {
+            total += Math.pow(charset.length, i);
+        }
+        total = Math.min(total, maxAttempts);
+
+        for (const password of utils.generatePasswords(charset, minLength, maxLength, maxAttempts)) {
+            attempts++;
+            this.stats.attempts = attempts;
+
+            if (onAttempt) {
+                const speed = this.getSpeed(attempts);
+                const eta = this.getETA(attempts, total);
+                onAttempt(password, attempts, { speed, eta, total });
+            }
+
+            try {
+                const result = await this.tryPassword(password);
+                if (result) {
+                    this.stats.success = true;
+                    if (onSuccess) {
+                        const elapsed = this.getElapsedTime() / 1000;
+                        const speed = this.getSpeed(attempts);
+                        onSuccess(password, attempts, { elapsed, speed });
+                    }
+                    return password;
                 }
             } catch (error) {
                 if (this.isTargetFileError(error)) {
@@ -171,10 +248,6 @@ class ArchiveDecrypt {
         return null;
     }
 
-    async bruteForceAttack(options = {}) {
-        throw new Error('Not implemented');
-    }
-
     async hybridAttack(options = {}) {
         this.checkOptions(options);
         this.options = options;
@@ -193,10 +266,6 @@ class ArchiveDecrypt {
         }
 
         return this.bruteForceAttack(options);
-    }
-
-    clearCache() {
-        this.extractorCache.clear();
     }
 }
 
