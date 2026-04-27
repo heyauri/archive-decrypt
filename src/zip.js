@@ -55,6 +55,7 @@ class ZipDecrypt extends ArchiveDecrypt {
                 || error.message.includes('too many length or distance codes')
                 || error.message.includes('CRC32 checksum failed')
                 || error.message.includes('unexpected end of file')
+                || error.message.includes('Invalid/unsupported compression method')
             ) {
                 return {
                     status: false,
