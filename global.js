@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const path = require('path');
 const fs = require('fs');
-const ArchiveDecrypt = require('./index');
+const ArchiveDecryptWrapper = require('./index');
 const utils = require('./src/utils');
 const { program } = require('commander');
 
@@ -93,7 +93,7 @@ addCommonOptions(program
             ]);
 
             const dict = readDictionary(dictionary);
-            const archiveDecrypt = new ArchiveDecrypt(archive);
+            const archiveDecrypt = new ArchiveDecryptWrapper(archive);
 
             console.log(`Starting dictionary attack with ${dict.length} passwords...`);
 
@@ -119,7 +119,7 @@ addCommonOptions(program
         try {
             validateFiles([{ path: archive, desc: 'Archive file' }]);
 
-            const archiveDecrypt = new ArchiveDecrypt(archive);
+            const archiveDecrypt = new ArchiveDecryptWrapper(archive);
 
             console.log(`Starting brute force attack...`);
             if (options.charset) {
@@ -159,7 +159,7 @@ addCommonOptions(program
             ]);
 
             const dict = readDictionary(dictionary);
-            const archiveDecrypt = new ArchiveDecrypt(archive);
+            const archiveDecrypt = new ArchiveDecryptWrapper(archive);
 
             console.log(`Starting hybrid attack...`);
             console.log(`Dictionary: ${dict.length} passwords`);

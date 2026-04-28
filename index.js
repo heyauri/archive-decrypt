@@ -2,7 +2,7 @@ const path = require('path');
 const ZipDecrypt = require('./src/zip');
 const RarDecrypt = require('./src/rar');
 
-class ArchiveDecrypt {
+class ArchiveDecryptWrapper {
     constructor(archivePath) {
         this.archivePath = archivePath;
         const ext = path.extname(archivePath).toLowerCase();
@@ -33,4 +33,4 @@ class ArchiveDecrypt {
 }
 
 // Export module
-module.exports = ArchiveDecrypt;
+module.exports = ArchiveDecryptWrapper;

@@ -59,6 +59,9 @@ class Cache {
         this.maxSize = maxSize;
     }
     set(key, value) {
+        if (this.cache.has(key)) {
+            this.cache.delete(key);
+        }
         if (this.cache.size >= this.maxSize) {
             const firstKey = this.cache.keys().next().value;
             this.cache.delete(firstKey);
@@ -66,7 +69,16 @@ class Cache {
         this.cache.set(key, value);
     }
     get(key) {
-        return this.cache.get(key);
+        if (!this.cache.has(key)) {
+            return undefined;
+        }
+        const value = this.cache.get(key);
+        this.cache.delete(key);
+        this.cache.set(key, value);
+        return value;
+    }
+    has(key) {
+        return this.cache.has(key);
     }
     clear() {
         this.cache.clear();
