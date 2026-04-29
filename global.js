@@ -64,7 +64,8 @@ function addCommonOptions(cmd) {
         .option('--quiet', 'Quiet mode, only show final result', false)
         .option('--save-progress', 'Enable progress saving for resume', false)
         .option('--load-progress', 'Load and resume from saved progress', false)
-        .option('--progress-interval <ms>', 'Progress save interval in milliseconds', parseInt, 60000);
+        .option('--progress-interval <ms>', 'Progress save interval in milliseconds', parseInt, 60000)
+        .option('--no-common-passwords', 'Disable common passwords generation');
 }
 
 // Create base options object
@@ -76,6 +77,7 @@ function createBaseOptions(options) {
         saveProgress: options.saveProgress,
         loadProgress: options.loadProgress,
         progressInterval: options.progressInterval,
+        includeCommonPasswords: options.commonPasswords !== false,
         ...createCallbacks(options)
     };
 }
@@ -101,7 +103,12 @@ addCommonOptions(program
             const dict = readDictionary(dictionary);
             const archiveDecrypt = new ArchiveDecryptWrapper(archive);
 
-            console.log(`Starting dictionary attack with ${dict.length} passwords...`);
+            console.log(`Starting dictionary attack with ${dict.length} passwords from file...`);
+            if (options.commonPasswords !== false) {
+                console.log(`Common passwords generation enabled (sequential, repeated, birthdays, etc.)`);
+            } else {
+                console.log(`Common passwords generation disabled`);
+            }
 
             await archiveDecrypt.dictionaryAttack({
                 dictionary: dict,
@@ -168,7 +175,12 @@ addCommonOptions(program
             const archiveDecrypt = new ArchiveDecryptWrapper(archive);
 
             console.log(`Starting hybrid attack...`);
-            console.log(`Dictionary: ${dict.length} passwords`);
+            console.log(`Dictionary: ${dict.length} passwords from file`);
+            if (options.commonPasswords !== false) {
+                console.log(`Common passwords generation enabled (sequential, repeated, birthdays, etc.)`);
+            } else {
+                console.log(`Common passwords generation disabled`);
+            }
             if (options.charset) {
                 console.log(`Character set: ${options.charset}`);
             } else {

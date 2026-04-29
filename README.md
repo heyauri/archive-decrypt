@@ -18,6 +18,9 @@ A Node.js package for brute force and dictionary attacks on encrypted archive fi
 - **Smart Error Handling**: Handles various zlib and checksum errors that occur with wrong passwords
 - **Progress Saving & Resume**: Save attack progress and resume later from where you left off
 - **Hybrid Mode Progress**: Complete progress tracking for hybrid attacks including both dictionary and brute force phases
+- **Automatic Duplicate Removal**: Removes duplicate passwords from dictionary using Set
+- **Common Password Generation**: Generates sequential numbers, repeated digits, birthdays (up to current year), and common words for faster recovery
+- **Performance Optimized**: Uses Set internally for automatic deduplication and improved performance
 
 ## Table of Contents
 
@@ -99,6 +102,10 @@ archive-decrypt dictionary encrypted.zip passwords.txt \
   --max-attempts 10000 \
   --delay 10 \
   --quiet
+
+# Disable common passwords generation
+archive-decrypt dictionary encrypted.zip passwords.txt \
+  --no-common-passwords
 ```
 
 #### Brute Force Attack
@@ -251,6 +258,7 @@ All attack methods support these options:
 - `saveProgress`: Enable progress saving for resume (default: true for CLI, false for API)
 - `loadProgress`: Load and resume from saved progress (default: false)
 - `progressInterval`: Progress save interval in milliseconds (default: 60000)
+- `--no-common-passwords`: Disable automatic generation of common passwords (CLI only)
 - `onAttempt`: Callback function called for each attempt. Receives parameters: (password, attempts, { speed, eta, total })
 - `onSuccess`: Callback function called when password is found. Receives parameters: (password, attempts, { elapsed, speed })
 - `onFailure`: Callback function called when password is not found. Receives parameters: ({ elapsed, speed, attempts })
@@ -258,6 +266,13 @@ All attack methods support these options:
 ### Dictionary Attack Options
 
 - `dictionary`: Array of passwords to try
+- `includeCommonPasswords`: Include common passwords like sequential numbers, repeated digits, birthdays, etc. (default: true)
+- `commonPasswordsOptions`: Options for common password generation:
+  - `sequential`: Include sequential numbers (default: true)
+  - `repeated`: Include repeated digits (default: true)
+  - `birthdays`: Include birthday patterns from 1970 to current year (default: true)
+  - `patterns`: Include number patterns (default: true)
+  - `commonWords`: Include common words (default: true)
 
 ### Brute Force Attack Options
 

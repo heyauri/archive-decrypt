@@ -2,6 +2,7 @@
 
 const utils = require('./utils');
 const ProgressManager = require('./progress');
+const commonPasswords = require('./commonPasswords');
 const crypto = require('crypto');
 const MAX_CACHE_SIZE = 10000;
 
@@ -364,12 +365,30 @@ class ArchiveDecrypt {
     }
 
     async dictionaryAttack(options = {}) {
-        const { dictionary = [], maxAttempts = Infinity } = options;
-        const total = dictionary.length;
+        const {
+            dictionary = [],
+            maxAttempts = Infinity,
+            includeCommonPasswords = true,
+            commonPasswordsOptions = {}
+        } = options;
+
+        // Create combined password set
+        let combinedPasswords;
+        if (includeCommonPasswords) {
+            const commonPwds = commonPasswords.generateCommonPasswords(commonPasswordsOptions);
+            // Combine both sources in one Set operation
+            combinedPasswords = new Set([...dictionary, ...commonPwds]);
+        } else {
+            combinedPasswords = new Set(dictionary);
+        }
+
+        // Convert to array for hashing and total count
+        const passwordArray = [...combinedPasswords];
+        const total = passwordArray.length;
 
         // Calculate dictionary hash for validation and store in this._internal
-        this._internal._dictHash = crypto.createHash('md5').update(dictionary.join('\n')).digest('hex');
-        this._internal._dictLength = dictionary.length;
+        this._internal._dictHash = crypto.createHash('md5').update(passwordArray.join('\n')).digest('hex');
+        this._internal._dictLength = passwordArray.length;
 
         // Set hybrid mode data if present
         if (options._hybridMode) {
@@ -387,8 +406,8 @@ class ArchiveDecrypt {
             return {
                 [Symbol.iterator]: () => ({
                     next: () => {
-                        if (index < dictionary.length && index < maxAttempts + startIndex) {
-                            return { value: dictionary[index++], done: false };
+                        if (index < passwordArray.length && index < maxAttempts + startIndex) {
+                            return { value: passwordArray[index++], done: false };
                         }
                         return { done: true };
                     }
