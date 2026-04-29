@@ -16,6 +16,8 @@ A Node.js package for brute force and dictionary attacks on encrypted archive fi
 - **Statistics**: Shows elapsed time, speed, and total attempts
 - **Automatic Smallest File Selection**: When no target file specified, automatically uses the smallest file for faster verification
 - **Smart Error Handling**: Handles various zlib and checksum errors that occur with wrong passwords
+- **Progress Saving & Resume**: Save attack progress and resume later from where you left off
+- **Hybrid Mode Progress**: Complete progress tracking for hybrid attacks including both dictionary and brute force phases
 
 ## Table of Contents
 
@@ -46,9 +48,12 @@ yarn add archive-decrypt
 
 ## Quick Start
 
-### CLI Quick Start
+### CLI Usage
 
 ```bash
+# Install the package
+npm install archive-decrypt -g
+
 # Dictionary attack
 archive-decrypt dictionary encrypted.zip passwords.txt
 
@@ -243,6 +248,9 @@ All attack methods support these options:
 - `maxAttempts`: Maximum number of attempts (default: Infinity)
 - `delay`: Delay between attempts in milliseconds (default: 0)
 - `ignoreUnexpectedError`: Ignore unexpected errors and continue trying (default: true). This helps with zlib errors (Z_DATA_ERROR, CRC32 checksum failed, etc.) that can occur when trying wrong passwords.
+- `saveProgress`: Enable progress saving for resume (default: true for CLI, false for API)
+- `loadProgress`: Load and resume from saved progress (default: false)
+- `progressInterval`: Progress save interval in milliseconds (default: 60000)
 - `onAttempt`: Callback function called for each attempt. Receives parameters: (password, attempts, { speed, eta, total })
 - `onSuccess`: Callback function called when password is found. Receives parameters: (password, attempts, { elapsed, speed })
 - `onFailure`: Callback function called when password is not found. Receives parameters: ({ elapsed, speed, attempts })
@@ -296,7 +304,63 @@ A: These are normal when trying wrong passwords. The tool handles them by defaul
 
 ### Q: Can I pause and resume attacks?
 
-A: Not currently, but it's a planned feature for future versions.
+A: Yes! Use the `--save-progress` and `--load-progress` options. Progress is automatically saved at regular intervals (default 60 seconds). See the [Progress Saving & Resume](#progress-saving--resume) section for more details.
+
+## Progress Saving & Resume
+
+ArchiveDecrypt supports saving attack progress and resuming later. This is especially useful for long-running attacks.
+
+### How It Works
+
+- Progress is saved in `.progress` directory in your current working directory
+- Each archive gets its own progress file based on file path, size, and modification time
+- Progress includes: current attempt count, attack mode, parameters, and validation information
+- Progress is automatically validated before resuming to ensure parameters haven't changed
+
+### CLI Usage
+
+```bash
+# Start an attack with progress saving enabled
+archive-decrypt dictionary encrypted.zip passwords.txt --save-progress
+
+# Later, resume from saved progress
+archive-decrypt dictionary encrypted.zip passwords.txt --load-progress --save-progress
+
+# Custom progress save interval (in milliseconds)
+archive-decrypt brute-force encrypted.zip --save-progress --progress-interval 30000
+
+# Hybrid attack with progress
+archive-decrypt hybrid encrypted.zip passwords.txt --save-progress --load-progress
+```
+
+### API Usage
+
+```javascript
+const ArchiveDecrypt = require('archive-decrypt');
+
+const archiveDecrypt = new ArchiveDecrypt('encrypted.archive');
+
+await archiveDecrypt.bruteForceAttack({
+    charset: 'numbers',
+    minLength: 4,
+    maxLength: 6,
+    saveProgress: true,      // Enable progress saving
+    loadProgress: true,      // Try to load saved progress
+    progressInterval: 30000, // Save every 30 seconds
+    onSuccess: (password) => {
+        console.log(`Found password: ${password}`);
+    }
+});
+```
+
+### Progress Validation
+
+Before resuming, the tool validates that:
+- **Dictionary attacks**: Dictionary content and length haven't changed (verified via MD5 hash)
+- **Brute force attacks**: Character set, minLength, and maxLength haven't changed
+- **Hybrid attacks**: All of the above
+
+If validation fails, the old progress is cleared and a new attack starts.
 
 ## License
 

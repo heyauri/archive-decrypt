@@ -7,7 +7,7 @@ const { program } = require('commander');
 
 const DEFAULT_CHARSET = 'alphanumeric';
 
-// 创建公共回调函数
+// Create common callback functions
 function createCallbacks(options) {
     return {
         onAttempt: (password, attempts, info) => {
@@ -37,7 +37,7 @@ function createCallbacks(options) {
     };
 }
 
-// 验证文件是否存在
+// Validate that files exist
 function validateFiles(files) {
     for (const { path: filePath, desc } of files) {
         if (!fs.existsSync(filePath)) {
@@ -47,7 +47,7 @@ function validateFiles(files) {
     }
 }
 
-// 读取字典文件
+// Read dictionary file
 function readDictionary(dictionaryPath) {
     return fs.readFileSync(dictionaryPath, 'utf8')
         .split('\n')
@@ -55,21 +55,27 @@ function readDictionary(dictionaryPath) {
         .filter(Boolean);
 }
 
-// 创建公共选项
+// Add common options
 function addCommonOptions(cmd) {
     return cmd
         .option('--target-file <file>', 'Target file to verify password')
         .option('--max-attempts <number>', 'Maximum number of attempts', parseInt)
         .option('--delay <ms>', 'Delay between attempts in milliseconds', parseInt, 0)
-        .option('--quiet', 'Quiet mode, only show final result', false);
+        .option('--quiet', 'Quiet mode, only show final result', false)
+        .option('--save-progress', 'Enable progress saving for resume', false)
+        .option('--load-progress', 'Load and resume from saved progress', false)
+        .option('--progress-interval <ms>', 'Progress save interval in milliseconds', parseInt, 60000);
 }
 
-// 创建基础选项对象
+// Create base options object
 function createBaseOptions(options) {
     return {
         targetFileName: options.targetFile,
         maxAttempts: options.maxAttempts,
         delay: options.delay,
+        saveProgress: options.saveProgress,
+        loadProgress: options.loadProgress,
+        progressInterval: options.progressInterval,
         ...createCallbacks(options)
     };
 }

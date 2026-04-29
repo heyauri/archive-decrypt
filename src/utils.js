@@ -8,8 +8,8 @@
  * @param {number} maxAttempts - Maximum number of attempts
  * @returns {Generator<string>} - Password generator
  */
-function* generatePasswords(charset, minLength, maxLength, maxAttempts, startPassword = '') {
-    let attempts = 0;
+function* generatePasswords(charset, minLength, maxLength, maxAttempts, startIndex = 0) {
+    let generatedCount = 0;
 
     for (let length = minLength; length <= maxLength; length++) {
         const passwordIndices = Array(length).fill(0);
@@ -18,15 +18,17 @@ function* generatePasswords(charset, minLength, maxLength, maxAttempts, startPas
         const passwordChars = new Array(length);
 
         while (hasMorePasswords) {
-            if (attempts >= maxAttempts) break;
+            if (generatedCount >= maxAttempts) break;
 
             for (let i = 0; i < length; i++) {
                 passwordChars[i] = charset[passwordIndices[i]];
             }
             const password = passwordChars.join('');
 
-            yield password;
-            attempts++;
+            if (generatedCount >= startIndex) {
+                yield password;
+            }
+            generatedCount++;
 
             let position = length - 1;
             while (position >= 0) {
@@ -43,7 +45,7 @@ function* generatePasswords(charset, minLength, maxLength, maxAttempts, startPas
             }
         }
 
-        if (attempts >= maxAttempts) break;
+        if (generatedCount >= maxAttempts) break;
     }
 }
 
