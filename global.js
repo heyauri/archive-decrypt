@@ -6,6 +6,7 @@ const utils = require('./src/utils');
 const { program } = require('commander');
 
 const DEFAULT_CHARSET = 'alphanumeric';
+const { CHARSET_PRESETS } = require('./src/ArchiveDecrypt');
 
 // Create common callback functions
 function createCallbacks(options) {
@@ -13,25 +14,44 @@ function createCallbacks(options) {
         onAttempt: (password, attempts, info) => {
             if (options.quiet) return;
 
-            if (attempts % 1000 === 0) {
-                const speedStr = info.speed ? `(${info.speed}/s)` : '';
+            if (attempts % 100 === 0 || attempts === 1) {
+                const speedStr = info.speed ? `${info.speed}/s` : '';
                 const etaStr = info.eta !== null ? `ETA: ${utils.formatTime(info.eta)}` : '';
-                const progressStr = info.total ? `[${attempts}/${info.total}]` : `[${attempts}]`;
-                process.stdout.write(`\rAttempt ${progressStr} ${speedStr} ${etaStr}`);
+
+                let barStr = '';
+                let percentStr = '';
+
+                if (info.total) {
+                    const percent = Math.min(1, attempts / info.total);
+                    barStr = utils.renderProgressBar(percent);
+                    percentStr = `${Math.round(percent * 100)}%`;
+                }
+
+                const progressStr = info.total ? `${attempts}/${info.total}` : `${attempts}`;
+
+                const parts = [
+                    `\r${barStr}`,
+                    `${percentStr}`,
+                    `Attempt: ${progressStr}`,
+                    `${speedStr}`,
+                    `${etaStr}`
+                ].filter(Boolean);
+
+                process.stdout.write(parts.join(' | '));
             }
         },
         onSuccess: (password, attempts, info) => {
             console.log(`\n\n✅ Success! Password found: "${password}"`);
-            console.log(`   Attempts: ${attempts}`);
-            console.log(`   Elapsed: ${info.elapsed.toFixed(1)}s`);
-            console.log(`   Speed: ${info.speed}/s`);
+            console.log(`   ├── Attempts: ${attempts}`);
+            console.log(`   ├── Elapsed: ${info.elapsed.toFixed(1)}s`);
+            console.log(`   └── Speed: ${info.speed}/s`);
             process.exit(0);
         },
         onFailure: (info) => {
             console.log(`\n\n❌ Password not found`);
-            console.log(`   Attempts: ${info.attempts}`);
-            console.log(`   Elapsed: ${info.elapsed.toFixed(1)}s`);
-            console.log(`   Speed: ${info.speed}/s`);
+            console.log(`   ├── Attempts: ${info.attempts}`);
+            console.log(`   ├── Elapsed: ${info.elapsed.toFixed(1)}s`);
+            console.log(`   └── Speed: ${info.speed}/s`);
             process.exit(1);
         }
     };
@@ -62,8 +82,8 @@ function addCommonOptions(cmd) {
         .option('--max-attempts <number>', 'Maximum number of attempts', parseInt)
         .option('--delay <ms>', 'Delay between attempts in milliseconds', parseInt, 0)
         .option('--quiet', 'Quiet mode, only show final result', false)
-        .option('--save-progress', 'Enable progress saving for resume', false)
-        .option('--load-progress', 'Load and resume from saved progress', false)
+        .option('--save-progress', 'Enable progress saving for resume', true)
+        .option('--load-progress', 'Load and resume from saved progress', true)
         .option('--progress-interval <ms>', 'Progress save interval in milliseconds', parseInt, 60000)
         .option('--no-common-passwords', 'Disable common passwords generation');
 }
@@ -135,12 +155,16 @@ addCommonOptions(program
             const archiveDecrypt = new ArchiveDecryptWrapper(archive);
 
             console.log(`Starting brute force attack...`);
-            if (options.charset) {
-                console.log(`Character set: ${options.charset}`);
-            } else {
+            if (!options.charset) {
                 options.charset = DEFAULT_CHARSET;
-                console.log(`Character set: ${DEFAULT_CHARSET}`);
             }
+
+            // Parse charset preset and display user-friendly info
+            const displayCharset = CHARSET_PRESETS[options.charset]
+                ? `${options.charset} (${CHARSET_PRESETS[options.charset].length} chars)`
+                : options.charset;
+            console.log(`Character set: ${displayCharset}`);
+
             console.log(`Password length: ${options.minLength}-${options.maxLength}`);
 
             await archiveDecrypt.bruteForceAttack({
@@ -181,12 +205,17 @@ addCommonOptions(program
             } else {
                 console.log(`Common passwords generation disabled`);
             }
-            if (options.charset) {
-                console.log(`Character set: ${options.charset}`);
-            } else {
+
+            if (!options.charset) {
                 options.charset = DEFAULT_CHARSET;
-                console.log(`Character set: ${DEFAULT_CHARSET}`);
             }
+
+            // Parse charset preset and display user-friendly info
+            const displayCharset = CHARSET_PRESETS[options.charset]
+                ? `${options.charset} (${CHARSET_PRESETS[options.charset].length} chars)`
+                : options.charset;
+            console.log(`Character set: ${displayCharset}`);
+
             console.log(`Password length: ${options.minLength}-${options.maxLength}`);
 
             await archiveDecrypt.hybridAttack({

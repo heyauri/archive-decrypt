@@ -15,24 +15,35 @@ const CHARSET_PRESETS = {
     alphanumeric: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 };
 
+const DEFAULT_OPTIONS = {
+    targetFileName: null,
+    charset: null,
+    minLength: 1,
+    maxLength: 10,
+    maxAttempts: Infinity,
+    multiFileValidate: false,
+    ignoreUnexpectedError: true,
+    saveProgress: true,
+    loadProgress: true,
+    progressInterval: 60000,
+    includeCommonPasswords: true,
+    commonPasswordsOptions: {
+        sequential: true,
+        repeated: true,
+        birthdays: true,
+        patterns: true,
+        commonWords: true
+    },
+    delay: 0
+};
+
 class ArchiveDecrypt {
     constructor(archivePath) {
         this.archivePath = archivePath;
         this.currentDecryptingMode = null;
         this.passwordCache = new utils.Cache(MAX_CACHE_SIZE);
         this.progressManager = new ProgressManager(archivePath);
-        this.options = {
-            targetFileName: null,
-            charset: null,
-            minLength: null,
-            maxLength: null,
-            maxAttempts: null,
-            multiFileValidate: false,
-            ignoreUnexpectedError: true,
-            saveProgress: true,
-            loadProgress: true,
-            progressInterval: 60000
-        };
+        this.options = { ...DEFAULT_OPTIONS };
         this._internal = {};
         this.targetFile = null;
         this.targetFileNotFound = false;
@@ -42,6 +53,183 @@ class ArchiveDecrypt {
         // to avoid directly exit while mode is hybrid but dictionary attack failed
         this.failureModeCount = 0;
         this.failureModeLimit = 1;
+    }
+
+    _initializeAttackState(options, isHybridMode = false, hybridPhase = null) {
+        if (isHybridMode) {
+            this._internal._hybridMode = true;
+            if (hybridPhase === 'dictionary') {
+                this._internal._hybridDictAttempts = options._hybridDictAttempts || 0;
+            } else if (hybridPhase === 'bruteForce') {
+                this._internal._hybridBruteAttempts = options._hybridBruteAttempts || 0;
+            }
+        } else {
+            this._internal._hybridMode = false;
+            this._internal._hybridDictAttempts = 0;
+            this._internal._hybridBruteAttempts = 0;
+        }
+    }
+
+    _createCleanOptions(options) {
+        const cleanOptions = { ...options };
+        delete cleanOptions._hybridMode;
+        delete cleanOptions._hybridDictAttempts;
+        delete cleanOptions._hybridBruteAttempts;
+        return cleanOptions;
+    }
+
+    _calculateDictionaryHash(dictionary = [], includeCommonPasswords = true, commonPasswordsOptions = {}) {
+        let combinedPasswords = dictionary;
+        if (includeCommonPasswords) {
+            const commonPwds = [...commonPasswords.generateCommonPasswords(commonPasswordsOptions)];
+            const allPasswords = new Set([...combinedPasswords, ...commonPwds]);
+            combinedPasswords = [...allPasswords];
+        }
+        this._internal._dictHash = crypto.createHash('md5').update(combinedPasswords.join('\n')).digest('hex');
+        this._internal._dictLength = combinedPasswords.length;
+    }
+
+    _validateProgress(loadedProgress, mode, options) {
+        if (!loadedProgress) return false;
+        if (loadedProgress.mode !== mode) return false;
+
+        if (mode === 'dictionary') {
+            if (!loadedProgress.internal || loadedProgress.internal._dictHash !== this._internal._dictHash) {
+                console.warn('Dictionary has changed, cannot resume progress');
+                return false;
+            }
+            if (!loadedProgress.internal || loadedProgress.internal._dictLength !== this._internal._dictLength) {
+                console.warn('Dictionary length has changed, cannot resume progress');
+                return false;
+            }
+        } else if (mode === 'bruteForce') {
+            // Normalize both charsets for comparison
+            const normalizeCharset = (charset) => {
+                if (charset && CHARSET_PRESETS[charset]) {
+                    return CHARSET_PRESETS[charset];
+                }
+                if (charset) {
+                    for (const [presetName, presetValue] of Object.entries(CHARSET_PRESETS)) {
+                        if (charset === presetValue) {
+                            return presetValue;
+                        }
+                    }
+                }
+                return charset;
+            };
+
+            const loadedCharset = normalizeCharset(loadedProgress.options?.charset);
+            const currentCharset = normalizeCharset(options.charset);
+
+            if (loadedCharset !== currentCharset) {
+                console.warn('Charset has changed, cannot resume progress');
+                return false;
+            }
+            if (loadedProgress.options?.minLength !== options.minLength) {
+                console.warn('minLength has changed, cannot resume progress');
+                return false;
+            }
+            if (loadedProgress.options?.maxLength !== options.maxLength) {
+                console.warn('maxLength has changed, cannot resume progress');
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    _validateHybridProgress(loadedProgress, options) {
+        if (!loadedProgress) return false;
+        if (loadedProgress.mode !== 'hybrid') return false;
+
+        if (!loadedProgress.internal || loadedProgress.internal._dictHash !== this._internal._dictHash) {
+            console.warn('Dictionary has changed, cannot resume progress');
+            return false;
+        }
+        if (!loadedProgress.internal || loadedProgress.internal._dictLength !== this._internal._dictLength) {
+            console.warn('Dictionary length has changed, cannot resume progress');
+            return false;
+        }
+
+        // Normalize both charsets for comparison
+        const normalizeCharset = (charset) => {
+            if (charset && CHARSET_PRESETS[charset]) {
+                return CHARSET_PRESETS[charset];
+            }
+            if (charset) {
+                for (const [presetName, presetValue] of Object.entries(CHARSET_PRESETS)) {
+                    if (charset === presetValue) {
+                        return presetValue;
+                    }
+                }
+            }
+            return charset;
+        };
+
+        const loadedCharset = normalizeCharset(loadedProgress.options?.charset);
+        const currentCharset = normalizeCharset(options.charset);
+
+        if (loadedCharset !== currentCharset) {
+            console.warn('Charset has changed, cannot resume progress');
+            return false;
+        }
+        if (loadedProgress.options?.minLength !== options.minLength) {
+            console.warn('minLength has changed, cannot resume progress');
+            return false;
+        }
+        if (loadedProgress.options?.maxLength !== options.maxLength) {
+            console.warn('maxLength has changed, cannot resume progress');
+            return false;
+        }
+
+        return true;
+    }
+
+    _createProgressData(mode, attempts, options, _hybridMode, currentPhase, hybridDictAttempts, hybridBruteAttempts) {
+        const safeOptions = { ...options };
+        delete safeOptions.dictionary;
+
+        // Save original charset preset name instead of resolved charset for validation
+        const saveOptions = { ...safeOptions };
+        if (saveOptions.charset && CHARSET_PRESETS[saveOptions.charset]) {
+            // Already using preset name, leave as is
+        } else {
+            // Check if it's actually a resolved preset value and find the original preset name
+            for (const [presetName, presetValue] of Object.entries(CHARSET_PRESETS)) {
+                if (saveOptions.charset === presetValue) {
+                    saveOptions.charset = presetName;
+                    break;
+                }
+            }
+        }
+
+        let progressData;
+        if (_hybridMode) {
+            progressData = {
+                mode: 'hybrid',
+                currentPhase: currentPhase || mode,
+                dictAttempts: mode === 'dictionary' ? attempts : hybridDictAttempts,
+                bruteAttempts: mode === 'bruteForce' ? attempts : hybridBruteAttempts,
+                options: saveOptions,
+                internal: {
+                    _dictHash: this._internal._dictHash,
+                    _dictLength: this._internal._dictLength
+                }
+            };
+        } else {
+            progressData = {
+                mode,
+                attempts,
+                options: saveOptions
+            };
+            if (mode === 'dictionary') {
+                progressData.internal = {
+                    _dictHash: this._internal._dictHash,
+                    _dictLength: this._internal._dictLength
+                };
+            }
+        }
+        return progressData;
     }
 
     async tryPassword(password) {
@@ -126,102 +314,6 @@ class ArchiveDecrypt {
         return Math.ceil(remaining / speed);
     }
 
-    /**
-     * Validate if progress can be safely resumed
-     * @param {Object} loadedProgress - Loaded progress data
-     * @param {string} mode - Current attack mode
-     * @param {Object} options - Current options (user input)
-     * @returns {boolean} Whether can resume
-     */
-    _validateProgress(loadedProgress, mode, options) {
-        if (!loadedProgress) return false;
-        if (loadedProgress.mode !== mode) return false;
-
-        if (mode === 'dictionary') {
-            // Validate dictionary hash and length from internal object
-            if (!loadedProgress.internal || loadedProgress.internal._dictHash !== this._internal._dictHash) {
-                console.warn('Dictionary has changed, cannot resume from progress');
-                return false;
-            }
-            if (!loadedProgress.internal || loadedProgress.internal._dictLength !== this._internal._dictLength) {
-                console.warn('Dictionary length has changed, cannot resume from progress');
-                return false;
-            }
-        } else if (mode === 'bruteForce') {
-            // Validate charset, minLength, maxLength
-            if (loadedProgress.options?.charset !== options.charset) {
-                console.warn('Charset has changed, cannot resume from progress');
-                return false;
-            }
-            if (loadedProgress.options?.minLength !== options.minLength) {
-                console.warn('minLength has changed, cannot resume from progress');
-                return false;
-            }
-            if (loadedProgress.options?.maxLength !== options.maxLength) {
-                console.warn('maxLength has changed, cannot resume from progress');
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Create progress data object
-     * @param {string} mode - Attack mode
-     * @param {number} attempts - Current attempt count
-     * @param {Object} options - Options object (user input only)
-     * @param {boolean} _hybridMode - Whether in hybrid mode
-     * @param {string} currentPhase - Current phase (hybrid mode)
-     * @param {number} hybridDictAttempts - Dictionary attempts (hybrid mode)
-     * @param {number} hybridBruteAttempts - Brute force attempts (hybrid mode)
-     * @returns {Object} Progress data object
-     */
-    _createProgressData(mode, attempts, options, _hybridMode, currentPhase, hybridDictAttempts, hybridBruteAttempts) {
-        // Create safe options object (without dictionary array)
-        const safeOptions = { ...options };
-        delete safeOptions.dictionary;
-
-        let progressData;
-        if (_hybridMode) {
-            // Save complete progress for hybrid mode
-            progressData = {
-                mode: 'hybrid',
-                currentPhase: currentPhase || mode,
-                dictAttempts: mode === 'dictionary' ? attempts : hybridDictAttempts,
-                bruteAttempts: mode === 'bruteForce' ? attempts : hybridBruteAttempts,
-                options: safeOptions,
-                internal: {
-                    _dictHash: this._internal._dictHash,
-                    _dictLength: this._internal._dictLength
-                }
-            };
-        } else {
-            // Save progress for single mode
-            progressData = {
-                mode,
-                attempts,
-                options: safeOptions
-            };
-            // Save dictionary validation info in internal object
-            if (mode === 'dictionary') {
-                progressData.internal = {
-                    _dictHash: this._internal._dictHash,
-                    _dictLength: this._internal._dictLength
-                };
-            }
-        }
-        return progressData;
-    }
-
-    /**
-     * Common attack method for dictionary and brute force attacks
-     * @param {Object} options - Attack options (user input only)
-     * @param {string} mode - Attack mode ('dictionary' or 'bruteForce')
-     * @param {Function} passwordGenerator - Password generator function, returns an iterable object
-     * @param {number} total - Total attempts to make
-     * @private
-     */
     async _attack(options, mode, passwordGenerator, total) {
         this.checkOptions(options);
         this.options = Object.assign({}, this.options, options);
@@ -318,7 +410,7 @@ class ArchiveDecrypt {
                     }
                 }
             } catch (error) {
-                console.error("ArchiveDecrypt encounter attack error:", error);
+                console.error("ArchiveDecrypt encountered attack error:", error);
                 if (this.options.saveProgress) {
                     const progressData = this._createProgressData(mode, attempts, this.options, _hybridMode, mode, hybridDictAttempts, hybridBruteAttempts);
                     this.progressManager.saveProgress(progressData);
@@ -372,11 +464,9 @@ class ArchiveDecrypt {
             commonPasswordsOptions = {}
         } = options;
 
-        // Create combined password set
         let combinedPasswords;
         if (includeCommonPasswords) {
             const commonPwds = commonPasswords.generateCommonPasswords(commonPasswordsOptions);
-            // Combine both sources in one Set operation
             combinedPasswords = new Set([...dictionary, ...commonPwds]);
         } else {
             combinedPasswords = new Set(dictionary);
@@ -386,20 +476,12 @@ class ArchiveDecrypt {
         const passwordArray = [...combinedPasswords];
         const total = passwordArray.length;
 
-        // Calculate dictionary hash for validation and store in this._internal
-        this._internal._dictHash = crypto.createHash('md5').update(passwordArray.join('\n')).digest('hex');
-        this._internal._dictLength = passwordArray.length;
-
-        // Set hybrid mode data if present
-        if (options._hybridMode) {
-            this._internal._hybridMode = true;
-            this._internal._hybridDictAttempts = options._hybridDictAttempts || 0;
-        } else {
-            // Clear hybrid mode data for single mode
-            this._internal._hybridMode = false;
-            this._internal._hybridDictAttempts = 0;
-            this._internal._hybridBruteAttempts = 0;
+        if (!options._hybridMode || !this._internal._dictHash) {
+            this._internal._dictHash = crypto.createHash('md5').update(passwordArray.join('\n')).digest('hex');
+            this._internal._dictLength = passwordArray.length;
         }
+
+        this._initializeAttackState(options, !!options._hybridMode, 'dictionary');
 
         const passwordGenerator = (startIndex = 0) => {
             let index = startIndex;
@@ -415,16 +497,14 @@ class ArchiveDecrypt {
             };
         };
 
-        // Create clean options without internal properties
-        const cleanOptions = { ...options };
-        delete cleanOptions._hybridMode;
-        delete cleanOptions._hybridDictAttempts;
-        delete cleanOptions._hybridBruteAttempts;
-
+        const cleanOptions = this._createCleanOptions(options);
         return this._attack(cleanOptions, 'dictionary', passwordGenerator, total);
     }
 
     async bruteForceAttack(options = {}) {
+        // Parse charset preset first
+        this.checkOptions(options);
+
         const {
             charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
             minLength = 1,
@@ -440,24 +520,8 @@ class ArchiveDecrypt {
             return utils.generatePasswords(charset, minLength, maxLength, maxAttempts + startIndex, startIndex);
         };
 
-        // Set internal data
-        if (options._hybridMode) {
-            this._internal._hybridMode = true;
-            this._internal._hybridDictAttempts = options._hybridDictAttempts || 0;
-            this._internal._hybridBruteAttempts = options._hybridBruteAttempts || 0;
-        } else {
-            // Clear hybrid mode data for single mode
-            this._internal._hybridMode = false;
-            this._internal._hybridDictAttempts = 0;
-            this._internal._hybridBruteAttempts = 0;
-        }
-
-        // Create clean options without internal properties
-        const cleanOptions = { ...options };
-        delete cleanOptions._hybridMode;
-        delete cleanOptions._hybridDictAttempts;
-        delete cleanOptions._hybridBruteAttempts;
-
+        this._initializeAttackState(options, !!options._hybridMode, 'bruteForce');
+        const cleanOptions = this._createCleanOptions(options);
         return this._attack(cleanOptions, 'bruteForce', passwordGenerator, total);
     }
 
@@ -465,12 +529,12 @@ class ArchiveDecrypt {
         this.currentDecryptingMode = 'hybrid';
         this.failureModeLimit = 2;
 
-        // Calculate dictionary hash for validation and store in this._internal
-        const { dictionary = [] } = options;
-        this._internal._dictHash = crypto.createHash('md5').update(dictionary.join('\n')).digest('hex');
-        this._internal._dictLength = dictionary.length;
+        // Parse charset preset first
+        this.checkOptions(options);
 
-        // Check if there is saved progress
+        const { dictionary = [], includeCommonPasswords = true, commonPasswordsOptions = {} } = options;
+        this._calculateDictionaryHash(dictionary, includeCommonPasswords, commonPasswordsOptions);
+
         let loadedProgress = null;
         let currentPhase = 'dictionary';
         let dictAttempts = 0;
@@ -479,7 +543,6 @@ class ArchiveDecrypt {
         if (this.options.loadProgress) {
             loadedProgress = this.progressManager.loadProgress();
             if (loadedProgress && loadedProgress.mode === 'hybrid') {
-                // Validate hybrid mode progress
                 if (this._validateHybridProgress(loadedProgress, options)) {
                     currentPhase = loadedProgress.currentPhase || 'dictionary';
                     dictAttempts = loadedProgress.dictAttempts || 0;
@@ -514,43 +577,8 @@ class ArchiveDecrypt {
         };
         return this.bruteForceAttack(bruteOptions);
     }
-
-    /**
-     * Validate hybrid mode progress
-     * @param {Object} loadedProgress - Loaded progress data
-     * @param {Object} options - Current options (user input)
-     * @returns {boolean} Whether can resume
-     */
-    _validateHybridProgress(loadedProgress, options) {
-        if (!loadedProgress) return false;
-        if (loadedProgress.mode !== 'hybrid') return false;
-
-        // Validate dictionary parameters from internal object
-        if (!loadedProgress.internal || loadedProgress.internal._dictHash !== this._internal._dictHash) {
-            console.warn('Dictionary has changed, cannot resume hybrid progress');
-            return false;
-        }
-        if (!loadedProgress.internal || loadedProgress.internal._dictLength !== this._internal._dictLength) {
-            console.warn('Dictionary length has changed, cannot resume hybrid progress');
-            return false;
-        }
-
-        // Validate brute force parameters
-        if (loadedProgress.options?.charset !== options.charset) {
-            console.warn('Charset has changed, cannot resume hybrid progress');
-            return false;
-        }
-        if (loadedProgress.options?.minLength !== options.minLength) {
-            console.warn('minLength has changed, cannot resume hybrid progress');
-            return false;
-        }
-        if (loadedProgress.options?.maxLength !== options.maxLength) {
-            console.warn('maxLength has changed, cannot resume hybrid progress');
-            return false;
-        }
-
-        return true;
-    }
 }
 
 module.exports = ArchiveDecrypt;
+module.exports.CHARSET_PRESETS = CHARSET_PRESETS;
+module.exports.DEFAULT_OPTIONS = DEFAULT_OPTIONS;

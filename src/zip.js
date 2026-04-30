@@ -34,7 +34,7 @@ class ZipDecrypt extends ArchiveDecrypt {
                 }
             }
             if (this.targetFile) {
-                console.log(`Target file found: ${this.targetFile.entryName} (size: ${smallestSize})`);
+                console.log(`\nTarget file found: ${this.targetFile.entryName} (size: ${smallestSize})`);
             }
         }
     }

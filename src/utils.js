@@ -55,6 +55,12 @@ function formatTime(seconds) {
     return `${mins > 0 ? `${mins}m ` : ''}${secs}s`;
 }
 
+function renderProgressBar(percent, width = 30) {
+    const filled = Math.round(percent * width);
+    const bar = '█'.repeat(filled) + '░'.repeat(width - filled);
+    return `[${bar}]`;
+}
+
 class Cache {
     constructor(maxSize) {
         this.cache = new Map();
@@ -90,5 +96,6 @@ class Cache {
 module.exports = {
     generatePasswords,
     formatTime,
+    renderProgressBar,
     Cache
 };

@@ -142,8 +142,11 @@ function generateCommonWords() {
 function generateCommonPasswords(options = {}) {
     const {
         sequential = true,
+        sequentialOptions = { minLength: 3, maxLength: 8 },
         repeated = true,
+        repeatedOptions = { minLength: 3, maxLength: 8 },
         birthdays = true,
+        birthdayOptions = { startYear: 1970, endYear: new Date().getFullYear() },
         patterns = true,
         commonWords = true
     } = options;
@@ -157,13 +160,13 @@ function generateCommonPasswords(options = {}) {
     }
 
     if (sequential) {
-        for (const pwd of generateSequentialNumbers()) {
+        for (const pwd of generateSequentialNumbers(sequentialOptions.minLength, sequentialOptions.maxLength)) {
             passwords.add(pwd);
         }
     }
 
     if (repeated) {
-        for (const pwd of generateRepeatedDigits()) {
+        for (const pwd of generateRepeatedDigits(repeatedOptions.minLength, repeatedOptions.maxLength)) {
             passwords.add(pwd);
         }
     }
@@ -175,7 +178,7 @@ function generateCommonPasswords(options = {}) {
     }
 
     if (birthdays) {
-        for (const pwd of generateBirthdays()) {
+        for (const pwd of generateBirthdays(birthdayOptions.startYear, birthdayOptions.endYear)) {
             passwords.add(pwd);
         }
     }
